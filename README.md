@@ -1,5 +1,5 @@
 ﻿<div align="center">
-    <img src="logo.png" alt="Project Logo" width="256" height="256">
+    <img src="https://raw.githubusercontent.com/LSXPrime/SoundFlow/refs/heads/master/logo.png" alt="Project Logo" width="256" height="256">
 
 # SoundFlow
 

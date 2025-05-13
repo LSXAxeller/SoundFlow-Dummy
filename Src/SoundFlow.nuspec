@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+    <metadata>
+        <id>SoundFlow</id>
+        <version>1.0.4-dev3</version>
+        <title>SoundFlow</title>
+        <authors>LSXPrime</authors>
+        <owners>LSXPrime</owners>
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+        <license type="file">LICENSE.md</license>
+        <projectUrl>https://github.com/LSXPrime/SoundFlow</projectUrl>
+        <repository type="Github" url="https://github.com/LSXPrime/SoundFlow" />
+        <icon>logo.png</icon>
+        <readme>README.md</readme>
+        <description>A powerful and extensible cross-platform .NET audio engine. provides comprehensive audio processing capabilities including playback, recording, effects, analysis, and visualization, built with a modular and high-performance architecture.</description> <!-- Matches Description -->
+        <releaseNotes>https://github.com/LSXPrime/SoundFlow/releases</releaseNotes>
+        <copyright>Copyright (c) 2025 LSXPrime</copyright>
+        <tags>audio, sound, mp3, wav, playback, record, voice, volume, fft, simd, crossplatform, miniaudio, c#, .net, echo, noise</tags>
+    </metadata>
+    <files>
+        <!-- Include the main assembly and its documentation -->
+        <file src="bin\$configuration$\net8.0\SoundFlow.dll" target="lib\net8.0\" exclude="**\*.pdb" />
+        <file src="bin\$configuration$\net8.0\SoundFlow.xml"  />
+        
+        <!-- Include the build targets file -->
+        <file src="SoundFlow.targets" target="" />
+
+        <!-- Include the native runtime files -->
+        <file src="Backends\MiniAudio\runtimes\**\*.*" target="runtimes\" />
+
+        <!-- Include root-level files (LICENSE, README, Icon) -->
+        <file src="..\LICENSE.md" target="" />
+        <file src="..\README.md" target="" />
+        <file src="..\logo.png" target="" />
+
+    </files>
+</package>

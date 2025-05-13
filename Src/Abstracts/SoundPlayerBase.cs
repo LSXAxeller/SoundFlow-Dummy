@@ -1,5 +1,4 @@
-﻿using System.Buffers;
-using SoundFlow.Enums;
+﻿using SoundFlow.Enums;
 using SoundFlow.Interfaces;
 
 namespace SoundFlow.Abstracts;
@@ -10,8 +9,12 @@ namespace SoundFlow.Abstracts;
 public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
 {
     private readonly ISoundDataProvider _dataProvider;
-    private int _samplePosition;
-    private float _currentFrame;
+    private int _rawSamplePosition;
+    private float _currentFractionalFrame;
+
+    private float[] _resampleBuffer;
+    private int _resampleBufferValidSamples;
+
     private float _playbackSpeed = 1.0f;
     private int _loopStartSamples;
     private int _loopEndSamples = -1;
@@ -35,12 +38,25 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     public bool IsLooping { get; set; }
 
     /// <inheritdoc />
-    public float Time =>
-        (float)_samplePosition / AudioEngine.Channels / AudioEngine.Instance.SampleRate / PlaybackSpeed;
+    public float Time => _dataProvider.Length == 0 || AudioEngine.Channels == 0 || AudioEngine.Instance.SampleRate == 0
+        ? 0
+        : (float)_rawSamplePosition / AudioEngine.Channels / AudioEngine.Instance.SampleRate;
+
+    /// <summary>
+    /// Returns the current time in seconds, in normal playback speed (1.0).
+    /// </summary>
+    public float SourceTimeSeconds => Time / PlaybackSpeed;
 
     /// <inheritdoc />
-    public float Duration => (float)_dataProvider.Length / AudioEngine.Channels / AudioEngine.Instance.SampleRate /
-                             PlaybackSpeed;
+    public float Duration
+    {
+        get
+        {
+            if (_dataProvider.Length == 0 || PlaybackSpeed == 0 || AudioEngine.Channels == 0 || AudioEngine.Instance.SampleRate == 0) return 0f;
+            return (float)_dataProvider.Length / AudioEngine.Channels / AudioEngine.Instance.SampleRate;
+        }
+    }
+
 
     /// <inheritdoc />
     public int LoopStartSamples => _loopStartSamples;
@@ -49,10 +65,10 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     public int LoopEndSamples => _loopEndSamples;
 
     /// <inheritdoc />
-    public float LoopStartSeconds => (float)_loopStartSamples / AudioEngine.Channels / AudioEngine.Instance.SampleRate;
+    public float LoopStartSeconds => AudioEngine.Channels == 0 || AudioEngine.Instance.SampleRate == 0 ? 0 : (float)_loopStartSamples / AudioEngine.Channels / AudioEngine.Instance.SampleRate;
 
     /// <inheritdoc />
-    public float LoopEndSeconds => _loopEndSamples == -1
+    public float LoopEndSeconds => _loopEndSamples == -1 || AudioEngine.Channels == 0 || AudioEngine.Instance.SampleRate == 0
         ? -1
         : (float)_loopEndSamples / AudioEngine.Channels / AudioEngine.Instance.SampleRate;
 
@@ -64,109 +80,156 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     protected SoundPlayerBase(ISoundDataProvider dataProvider)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
+        var initialChannels = AudioEngine.Channels > 0 ? AudioEngine.Channels : 2; // Default to 2 if not yet known
+        var initialSampleRate = AudioEngine.Instance.SampleRate > 0 ? AudioEngine.Instance.SampleRate : 44100; // Default
+        var initialBufferSize = Math.Max(256, initialSampleRate * initialChannels / 10); // e.g., 100ms
+        _resampleBuffer = new float[initialBufferSize];
     }
 
     /// <inheritdoc />
     protected override void GenerateAudio(Span<float> output)
     {
-        if (State != PlaybackState.Playing)
-            return;
-
-        if (IsLooping)
+        if (State != PlaybackState.Playing || AudioEngine.Channels == 0)
         {
-            var loopEnd = _loopEndSamples == -1 ? _dataProvider.Length : _loopEndSamples;
-            if (loopEnd > 0 && _samplePosition >= loopEnd)
-            {
-                Seek(LoopStartSamples);
-                _currentFrame = 0f;
-                return;
-            }
+            output.Clear();
+            return;
         }
 
         var channels = AudioEngine.Channels;
-        var speed = PlaybackSpeed;
-        var outputSampleCount = output.Length;
-        var outputFrameCount = outputSampleCount / channels;
+        var outputFramesTotal = output.Length / channels;
+        var outputBufferOffset = 0;
 
-        // Calculate the number of source frames required
-        var requiredSourceFrames = (int)Math.Ceiling(outputFrameCount * speed) + 2;
-        var requiredSourceSamples = requiredSourceFrames * channels;
-
-        var sourceSamples = ArrayPool<float>.Shared.Rent(requiredSourceSamples);
-        var sourceSpan = sourceSamples.AsSpan(0, requiredSourceSamples);
-        var sourceSamplesRead = _dataProvider.ReadBytes(sourceSpan);
-
-        if (sourceSamplesRead == 0)
+        for (var i = 0; i < outputFramesTotal; i++)
         {
-            ArrayPool<float>.Shared.Return(sourceSamples);
-            HandleEndOfStream(output);
-            return;
-        }
+            var currentIntegerFrame = (int)Math.Floor(_currentFractionalFrame);
+            // Need at least current frame + next frame for interpolation
+            var framesRequiredInBufferForInterpolation = currentIntegerFrame + 2; 
+            var samplesRequiredInBufferForInterpolation = framesRequiredInBufferForInterpolation * channels;
 
-        var sourceFramesRead = sourceSamplesRead / channels;
-        var outputFrameIndex = 0;
+            if (_resampleBufferValidSamples < samplesRequiredInBufferForInterpolation)
+            {
+                FillResampleBuffer(samplesRequiredInBufferForInterpolation);
 
-        // Process output frames with linear interpolation
-        while (outputFrameIndex < outputFrameCount && _currentFrame < sourceFramesRead - 1)
-        {
-            var sourceFrame = _currentFrame;
-            var frameIndex0 = (int)sourceFrame;
-            var t = sourceFrame - frameIndex0;
+                // Re-check after attempting to fill
+                if (_resampleBufferValidSamples < samplesRequiredInBufferForInterpolation)
+                {
+                    // Still not enough data, means end of current data provider segment
+                    Span<float> remainingOutput = output[outputBufferOffset..];
+                    // HandleEndOfStream will take care of clearing or filling if looped
+                    HandleEndOfStream(remainingOutput);
+                    return; // Must exit, HandleEndOfStream might re-enter GenerateAudio
+                }
+            }
+            
+            var frameIndex0 = currentIntegerFrame;
+            var t = _currentFractionalFrame - frameIndex0;
 
             for (var ch = 0; ch < channels; ch++)
             {
                 var sampleIndex0 = frameIndex0 * channels + ch;
                 var sampleIndex1 = (frameIndex0 + 1) * channels + ch;
 
-                if (sampleIndex1 >= sourceSamplesRead)
-                    break;
+                // Boundary checks for safety, though FillResampleBuffer should ensure enough if possible
+                if (sampleIndex1 >= _resampleBufferValidSamples) 
+                { 
+                     output[outputBufferOffset + ch] = (sampleIndex0 < _resampleBufferValidSamples && sampleIndex0 >=0) ? _resampleBuffer[sampleIndex0] : 0f;
+                     continue;
+                }
+                if(sampleIndex0 < 0)
+                {
+                    output[outputBufferOffset + ch] = 0f;
+                    continue;
+                }
 
-                var sample0 = sourceSamples[sampleIndex0];
-                var sample1 = sourceSamples[sampleIndex1];
-                output[outputFrameIndex * channels + ch] = sample0 * (1 - t) + sample1 * t;
+
+                var s0 = _resampleBuffer[sampleIndex0];
+                var s1 = _resampleBuffer[sampleIndex1];
+                output[outputBufferOffset + ch] = s0 * (1.0f - t) + s1 * t;
             }
 
-            outputFrameIndex++;
-            _currentFrame += speed;
-        }
+            outputBufferOffset += channels;
+            _currentFractionalFrame += PlaybackSpeed;
 
-        // Clear any remaining output if underflow occurred.
-        if (outputFrameIndex < outputFrameCount)
+            var framesConsumedInteger = (int)Math.Floor(_currentFractionalFrame);
+
+            if (framesConsumedInteger > 0)
+            {
+                var conceptualSamplesConsumed = framesConsumedInteger * channels;
+                _rawSamplePosition += conceptualSamplesConsumed;
+
+                var actualSamplesToDiscardFromBuffer = Math.Min(conceptualSamplesConsumed, _resampleBufferValidSamples);
+
+                if (actualSamplesToDiscardFromBuffer > 0)
+                {
+                    var remainingSamplesInBuffer = _resampleBufferValidSamples - actualSamplesToDiscardFromBuffer;
+                    if (remainingSamplesInBuffer > 0)
+                    {
+                        Buffer.BlockCopy(_resampleBuffer,
+                            actualSamplesToDiscardFromBuffer * sizeof(float),
+                            _resampleBuffer,
+                            0,
+                            remainingSamplesInBuffer * sizeof(float));
+                    }
+                    _resampleBufferValidSamples = remainingSamplesInBuffer;
+                }
+                _currentFractionalFrame -= framesConsumedInteger;
+            }
+        }
+    }
+
+    private void FillResampleBuffer(int minSamplesRequiredInTotal)
+    {
+        var channels = AudioEngine.Channels;
+        if (channels == 0) return;
+
+        // If we already have enough valid samples for the current need, return.
+        if (_resampleBufferValidSamples >= minSamplesRequiredInTotal) return;
+
+        // Resize _resampleBuffer if it's fundamentally too small to hold the required samples
+        // or if it's smaller than a reasonable minimum processing size.
+        var effectiveMinSize = Math.Max(minSamplesRequiredInTotal, Math.Max(256, channels * 4));
+        if (_resampleBuffer.Length < effectiveMinSize)
         {
-            output.Slice(outputFrameIndex * channels, (outputFrameCount - outputFrameIndex) * channels).Clear();
+            var newSize = Math.Max(effectiveMinSize, _resampleBuffer.Length * 2);
+            if (newSize > _resampleBuffer.Length) Array.Resize(ref _resampleBuffer, newSize);
         }
 
-        // Update playback position.
-        var framesConsumed = (int)_currentFrame;
-        _samplePosition += framesConsumed * channels;
-        _currentFrame -= framesConsumed;
+        // Determine how many samples to try and read: fill up to _resampleBuffer.Length
+        // from the current _resampleBufferValidSamples position.
+        var samplesToAttemptToRead = _resampleBuffer.Length - _resampleBufferValidSamples;
 
-        ArrayPool<float>.Shared.Return(sourceSamples);
+        if (samplesToAttemptToRead <= 0) return; // No space left in the buffer
 
-        if (framesConsumed >= sourceFramesRead - 1)
-            HandleEndOfStream(output[(outputFrameIndex * channels)..]);
+        var writeSpan = _resampleBuffer.AsSpan(_resampleBufferValidSamples, samplesToAttemptToRead);
+        var numRead = _dataProvider.ReadBytes(writeSpan);
+
+        _resampleBufferValidSamples += numRead;
     }
 
     /// <summary>
     /// Handles the end-of-stream condition.
     /// </summary>
-    protected virtual void HandleEndOfStream(Span<float> buffer)
+    protected virtual void HandleEndOfStream(Span<float> remainingOutputBuffer)
     {
         if (IsLooping)
         {
-            var loopStart = _loopStartSamples;
-            
-            // Fallback to loop start if something unexpected
-            Seek(loopStart); // Seek to the loop start point
+            // Seek also resets _rawSamplePosition, _currentFractionalFrame, and _resampleBufferValidSamples
+            Seek(LoopStartSamples); 
 
-            _currentFrame = 0f;
-            GenerateAudio(buffer); // Process the buffer again after seeking.
+            if (!remainingOutputBuffer.IsEmpty)
+            {
+                // Try to fill the rest of the output buffer with the newly looped audio
+                GenerateAudio(remainingOutputBuffer);
+            }
         }
         else
         {
             State = PlaybackState.Stopped;
             OnPlaybackEnded();
-            buffer.Clear();
+            if (!remainingOutputBuffer.IsEmpty)
+            {
+                remainingOutputBuffer.Clear();
+            }
         }
     }
 
@@ -207,16 +270,17 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     /// <inheritdoc />
     public void Stop()
     {
-        Pause();
+        State = PlaybackState.Stopped;
+        Enabled = false;
         Seek(0);
+        _resampleBufferValidSamples = 0;
+        _currentFractionalFrame = 0f;
     }
 
     /// <inheritdoc />
     public bool Seek(TimeSpan time, SeekOrigin seekOrigin = SeekOrigin.Begin)
     {
-        if (time < TimeSpan.Zero)
-            return false;
-        
+        if (AudioEngine.Channels == 0 || AudioEngine.Instance.SampleRate == 0 || time < TimeSpan.Zero && seekOrigin == SeekOrigin.End) return false;
         if (Duration <= 0)
             return time <= TimeSpan.Zero && Seek(0f);
         
@@ -225,7 +289,7 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
             case SeekOrigin.Current:
                 return Seek((float)(Time + time.TotalSeconds));
             case SeekOrigin.End:
-                if (Duration <= 0 || !double.IsNegative(time.TotalSeconds))
+                if (Duration <= 0 || !double.IsNegative(time.TotalSeconds) || Duration + time.TotalSeconds > Duration)
                     return Seek(Duration);
                 
                 return Seek((float)(Duration + time.TotalSeconds));
@@ -238,6 +302,7 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     /// <inheritdoc />
     public bool Seek(float time)
     {
+        if (AudioEngine.Channels == 0 || AudioEngine.Instance.SampleRate == 0) return false;
         var sampleOffset = (int)(time / Duration * _dataProvider.Length);
         return Seek(sampleOffset);
     }
@@ -245,14 +310,21 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     /// <inheritdoc />
     public bool Seek(int sampleOffset)
     {
-        if (!_dataProvider.CanSeek || sampleOffset < 0 || sampleOffset >= _dataProvider.Length)
-            return false;
+        if (!_dataProvider.CanSeek || AudioEngine.Channels == 0) return false;
+
+        var maxSeekableSample = _dataProvider.Length > 0 ? _dataProvider.Length - AudioEngine.Channels : 0;
+        maxSeekableSample = Math.Max(0, maxSeekableSample);
+        sampleOffset = Math.Clamp(sampleOffset, 0, maxSeekableSample);
+        
+        // Align to frame boundary if not already
+        sampleOffset = sampleOffset / AudioEngine.Channels * AudioEngine.Channels;
+
 
         _dataProvider.Seek(sampleOffset);
-        _samplePosition = sampleOffset;
 
-        // Reset the fractional frame index for interpolation relative to the new stream position.
-        _currentFrame = 0f;
+        _rawSamplePosition = sampleOffset;
+        _currentFractionalFrame = 0f;
+        _resampleBufferValidSamples = 0;
         return true;
     }
 
@@ -263,55 +335,61 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     /// <inheritdoc />
     public void SetLoopPoints(float startTime, float? endTime = -1f)
     {
+        if (AudioEngine.Channels == 0 || AudioEngine.Instance.SampleRate == 0) return;
+
         if (startTime < 0)
             throw new ArgumentOutOfRangeException(nameof(startTime), "Loop start time cannot be negative.");
-        if (endTime.HasValue && Math.Abs(endTime.Value - -1f) < 1e-6 && endTime < startTime)
+
+        var effectiveEndTime = endTime ?? -1f;
+        if (Math.Abs(effectiveEndTime - -1f) > 1e-6f && effectiveEndTime < startTime)
             throw new ArgumentOutOfRangeException(nameof(endTime),
                 "Loop end time must be greater than or equal to start time, or -1.");
 
         _loopStartSamples = (int)(startTime * AudioEngine.Instance.SampleRate * AudioEngine.Channels);
-        _loopEndSamples = endTime.HasValue
-            ? (Math.Abs(endTime.Value - (-1)) < 1e-6
-                ? -1
-                : (int)(endTime.Value * AudioEngine.Instance.SampleRate * AudioEngine.Channels))
-            : -1;
+        _loopEndSamples = Math.Abs(effectiveEndTime - -1f) < 1e-6f
+            ? -1
+            : (int)(effectiveEndTime * AudioEngine.Instance.SampleRate * AudioEngine.Channels);
 
-
-        // Clamp to valid sample range
+        // Align to frame boundaries and clamp
+        _loopStartSamples = (_loopStartSamples / AudioEngine.Channels) * AudioEngine.Channels;
         _loopStartSamples = Math.Clamp(_loopStartSamples, 0, _dataProvider.Length);
-        _loopEndSamples = _loopEndSamples == -1 ? -1 : Math.Clamp(_loopEndSamples, -1, _dataProvider.Length);
+
+        if (_loopEndSamples != -1)
+        {
+            _loopEndSamples = _loopEndSamples / AudioEngine.Channels * AudioEngine.Channels;
+            _loopEndSamples = Math.Clamp(_loopEndSamples, _loopStartSamples, _dataProvider.Length);
+        }
     }
 
     /// <inheritdoc />
     public void SetLoopPoints(int startSample, int endSample = -1)
     {
+        if (AudioEngine.Channels == 0) return;
+
         if (startSample < 0)
             throw new ArgumentOutOfRangeException(nameof(startSample), "Loop start sample cannot be negative.");
         if (endSample != -1 && endSample < startSample)
             throw new ArgumentOutOfRangeException(nameof(endSample),
                 "Loop end sample must be greater than or equal to start sample, or -1.");
 
-        _loopStartSamples = startSample;
-        _loopEndSamples = endSample;
-
-        // Clamp to valid sample range
+        _loopStartSamples = (startSample / AudioEngine.Channels) * AudioEngine.Channels;
         _loopStartSamples = Math.Clamp(_loopStartSamples, 0, _dataProvider.Length);
-        _loopEndSamples = _loopEndSamples == -1 ? -1 : Math.Clamp(_loopEndSamples, -1, _dataProvider.Length);
+
+        if (endSample != -1)
+        {
+            _loopEndSamples = (endSample / AudioEngine.Channels) * AudioEngine.Channels;
+            _loopEndSamples = Math.Clamp(_loopEndSamples, _loopStartSamples, _dataProvider.Length);
+        }
+        else
+        {
+            _loopEndSamples = -1;
+        }
     }
 
     /// <inheritdoc />
     public void SetLoopPoints(TimeSpan startTime, TimeSpan? endTime = null)
     {
-        if (startTime < TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(startTime), "Loop start time cannot be negative.");
-        if (endTime < startTime)
-            throw new ArgumentOutOfRangeException(nameof(endTime),
-                "Loop end time must be greater than or equal to start time, or null.");
-
-        var startTimeSeconds = (float)startTime.TotalSeconds;
-        var endTimeSeconds = endTime?.TotalSeconds;
-
-        SetLoopPoints(startTimeSeconds, (float?)endTimeSeconds);
+        SetLoopPoints((float)startTime.TotalSeconds, (float?)endTime?.TotalSeconds);
     }
     #endregion
 }

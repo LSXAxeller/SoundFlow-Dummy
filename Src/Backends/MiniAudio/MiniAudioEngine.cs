@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using SoundFlow.Abstracts;
 using SoundFlow.Enums;
 using SoundFlow.Interfaces;
@@ -20,6 +19,8 @@ public sealed class MiniAudioEngine(
     private Native.AudioCallback? _audioCallback;
     private nint _context;
     private nint _device = nint.Zero;
+    private nint _currentPlaybackDeviceId = nint.Zero;
+    private nint _currentCaptureDeviceId = nint.Zero;
 
     /// <inheritdoc />
     protected override bool RequiresBackendThread { get; } = false;
@@ -33,27 +34,27 @@ public sealed class MiniAudioEngine(
         if (result != Result.Success)
             throw new InvalidOperationException("Unable to init context. " + result);
 
-        InitializeDeviceInternal(nint.Zero, DeviceType.Playback);
+        InitializeDeviceInternal(nint.Zero, nint.Zero);
     }
 
 
-    private void InitializeDeviceInternal(nint deviceId, DeviceType type)
+    private void InitializeDeviceInternal(nint playbackDeviceId, nint captureDeviceId)
     {
-        if (_device != nint.Zero) 
+        if (_device != nint.Zero)
             CleanupCurrentDevice();
 
         var deviceConfig = Native.AllocateDeviceConfig(Capability, SampleFormat, (uint)Channels, (uint)SampleRate,
             _audioCallback ??= AudioCallback,
-            type == DeviceType.Playback ? deviceId : nint.Zero,
-            type == DeviceType.Capture ? deviceId : nint.Zero);
+            playbackDeviceId,
+            captureDeviceId);
 
         _device = Native.AllocateDevice();
-        var result = Native.DeviceInit(nint.Zero, deviceConfig, _device);
+        var result = Native.DeviceInit(_context, deviceConfig, _device);
         Native.Free(deviceConfig);
 
         if (result != Result.Success)
         {
-            Native.Free(_device); 
+            Native.Free(_device);
             _device = nint.Zero;
             throw new InvalidOperationException($"Unable to init device. {result}");
         }
@@ -64,16 +65,21 @@ public sealed class MiniAudioEngine(
             CleanupCurrentDevice();
             throw new InvalidOperationException($"Unable to start device. {result}");
         }
-        
+
         UpdateDevicesInfo();
-        CurrentPlaybackDevice = PlaybackDevices.FirstOrDefault(x => x.IsDefault);
-        CurrentCaptureDevice = CaptureDevices.FirstOrDefault(x => x.IsDefault);
+        CurrentPlaybackDevice = PlaybackDevices.FirstOrDefault(x => x.Id == playbackDeviceId);
+        CurrentCaptureDevice = CaptureDevices.FirstOrDefault(x => x.Id == captureDeviceId);
+        CurrentPlaybackDevice ??= PlaybackDevices.FirstOrDefault(x => x.IsDefault);
+        CurrentCaptureDevice ??= CaptureDevices.FirstOrDefault(x => x.IsDefault);
+
+        if (CurrentPlaybackDevice != null) _currentPlaybackDeviceId = CurrentPlaybackDevice.Value.Id;
+        if (CurrentCaptureDevice != null) _currentCaptureDeviceId = CurrentCaptureDevice.Value.Id;
     }
 
     private void CleanupCurrentDevice()
     {
         if (_device == nint.Zero) return;
-        Native.DeviceStop(_device);
+        _ = Native.DeviceStop(_device);
         Native.DeviceUninit(_device);
         Native.Free(_device);
         _device = nint.Zero;
@@ -124,10 +130,44 @@ public sealed class MiniAudioEngine(
     public override void SwitchDevice(DeviceInfo deviceInfo, DeviceType type = DeviceType.Playback)
     {
         if (deviceInfo.Id == nint.Zero)
-            throw new InvalidOperationException("Unable to switch playback device. Device ID is invalid.");
+            throw new InvalidOperationException("Unable to switch device. Device ID is invalid.");
 
-        InitializeDeviceInternal(deviceInfo.Id, type);
+        switch (type)
+        {
+            case DeviceType.Playback:
+                InitializeDeviceInternal(deviceInfo.Id, _currentCaptureDeviceId);
+                break;
+            case DeviceType.Capture:
+                InitializeDeviceInternal(_currentPlaybackDeviceId, deviceInfo.Id);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(type), type, "Invalid DeviceType for SwitchDevice.");
+        }
     }
+    
+    /// <inheritdoc />
+    public override void SwitchDevices(DeviceInfo? playbackDeviceInfo, DeviceInfo? captureDeviceInfo)
+    {
+        var playbackDeviceId = _currentPlaybackDeviceId;
+        var captureDeviceId = _currentCaptureDeviceId;
+
+        if (playbackDeviceInfo != null)
+        {
+            if (playbackDeviceInfo.Value.Id == nint.Zero)
+                throw new InvalidOperationException("Invalid Playback Device ID provided for SwitchDevices.");
+            playbackDeviceId = playbackDeviceInfo.Value.Id;
+        }
+
+        if (captureDeviceInfo != null)
+        {
+            if (captureDeviceInfo.Value.Id == nint.Zero)
+                throw new InvalidOperationException("Invalid Capture Device ID provided for SwitchDevices.");
+            captureDeviceId = captureDeviceInfo.Value.Id;
+        }
+
+        InitializeDeviceInternal(playbackDeviceId, captureDeviceId);
+    }
+
 
     /// <inheritdoc />
     public override void UpdateDevicesInfo()
@@ -139,15 +179,21 @@ public sealed class MiniAudioEngine(
 
         PlaybackDeviceCount = (int)playbackDeviceCount;
         CaptureDeviceCount = (int)captureDeviceCount;
-        
-        if (pPlaybackDevices == nint.Zero || pCaptureDevices == nint.Zero || playbackDeviceCount == 0 ||
-            captureDeviceCount == 0)
-            throw new InvalidOperationException("Unable to get devices.");
+
+        if (pPlaybackDevices == nint.Zero && pCaptureDevices == nint.Zero)
+        {
+            PlaybackDevices = [];
+            CaptureDevices = [];
+            return;
+        }
 
         PlaybackDevices = pPlaybackDevices.ReadArray<DeviceInfo>(PlaybackDeviceCount);
         CaptureDevices = pCaptureDevices.ReadArray<DeviceInfo>(CaptureDeviceCount);
 
         Native.Free(pPlaybackDevices);
         Native.Free(pCaptureDevices);
+
+        if (playbackDeviceCount == 0) PlaybackDevices = [];
+        if (captureDeviceCount == 0) CaptureDevices = [];
     }
 }

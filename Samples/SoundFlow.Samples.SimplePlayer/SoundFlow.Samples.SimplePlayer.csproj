@@ -8,6 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\..\Extensions\SoundFlow.Extensions.WebRtc.Apm\SoundFlow.Extensions.WebRtc.Apm.csproj" />
       <ProjectReference Include="..\..\Src\SoundFlow.csproj" />
     </ItemGroup>
 

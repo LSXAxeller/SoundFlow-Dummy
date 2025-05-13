@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "SoundFlow.SimplePlayer": {
-      "commandName": "Project",
-      "nativeDebugging": true
-    }
-  }
-}

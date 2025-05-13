@@ -16,6 +16,8 @@ internal static unsafe partial class Native
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate Result DecoderSeek(nint pDecoder, long byteOffset, SeekPoint origin);
 
+    private static string? _cachedRuntimesPath = "runtimes";
+
     static Native()
     {
         NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), NativeLibraryResolver.Resolve);
@@ -29,13 +31,9 @@ internal static unsafe partial class Native
             return NativeLibrary.Load(libraryPath);
         }
 
-
         private static string GetLibraryPath(string libraryName)
         {
-            var relativeBase = Directory.Exists("runtimes") ? "runtimes" :
-                Directory.EnumerateDirectories(Directory.GetCurrentDirectory(), "runtimes", SearchOption.AllDirectories)
-                    .Select(dirPath => Path.GetRelativePath(Directory.GetCurrentDirectory(), dirPath))
-                    .FirstOrDefault();
+            var relativeBase = _cachedRuntimesPath; // ??= FindRuntimesDirectory();
             
             if (string.IsNullOrEmpty(relativeBase))
                 throw new DirectoryNotFoundException("Unable to find runtimes directory.");
@@ -100,6 +98,17 @@ internal static unsafe partial class Native
 
             throw new PlatformNotSupportedException(
                 $"Unsupported operating system: {RuntimeInformation.OSDescription}");
+        }
+
+        private static string? FindRuntimesDirectory()
+        {
+            var basePath = $"{AppDomain.CurrentDomain.BaseDirectory}/runtimes";
+            return Directory.Exists(basePath)
+                ? basePath
+                : Directory.EnumerateDirectories(Directory.GetCurrentDirectory(), "runtimes",
+                        SearchOption.AllDirectories)
+                    .Select(dirPath => Path.GetRelativePath(Directory.GetCurrentDirectory(), dirPath))
+                    .FirstOrDefault();
         }
     }
 

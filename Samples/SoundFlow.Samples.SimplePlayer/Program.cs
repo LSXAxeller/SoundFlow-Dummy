@@ -4,6 +4,8 @@ using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Components;
 using SoundFlow.Enums;
 using SoundFlow.Experimental;
+using SoundFlow.Extensions.WebRtc.Apm;
+using SoundFlow.Extensions.WebRtc.Apm.Modifiers;
 using SoundFlow.Interfaces;
 using SoundFlow.Modifiers;
 using SoundFlow.Providers;
@@ -18,7 +20,7 @@ namespace SoundFlow.Samples.SimplePlayer;
 internal static class Program
 {
     private static AudioEngine? _audioEngine;
-    private static readonly string RecordedFilePath = Path.Combine(Directory.GetCurrentDirectory(), "recorded.wav");
+    private static readonly string RecordedFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recorded.wav");
     
     private static void Main()
     {
@@ -84,7 +86,7 @@ internal static class Program
         _audioEngine?.Dispose();
     }
 
-    private static void SetOrCreateEngine(Capability capability = Capability.Playback, int sampleRate = 44100,
+    private static void SetOrCreateEngine(Capability capability = Capability.Playback, int sampleRate = 48000,
         SampleFormat sampleFormat = SampleFormat.F32, int channels = 2)
     {
         if (_audioEngine == null || _audioEngine.IsDisposed)
@@ -246,17 +248,108 @@ internal static class Program
     private static void MixedRecordAndPlayback()
     {
         SetOrCreateEngine(Capability.Mixed);
+        
+        // Create MicrophoneDataProvider and SoundPlayer
         var microphoneDataProvider = new MicrophoneDataProvider();
         var soundPlayer = new SoundPlayer(microphoneDataProvider);
+        
+        // Add noise suppression and AEC modifiers
+        var apmModifier = new WebRtcApmModifier();
+        soundPlayer.AddModifier(apmModifier);
+
+        // Add sound player to the master mixer
         Mixer.Master.AddComponent(soundPlayer);
+        
+        // Start capturing audio from the microphone and play it
         microphoneDataProvider.StartCapture();
         soundPlayer.Play();
+        
         Console.WriteLine("Capturing and playing audio from the microphone. Press any key to stop.");
-        Console.ReadKey();
+        Console.WriteLine("Press 'A' to toggle AEC, 'S' to toggle noise suppression, 'D' to toggle noise suppression level, 'F' to toggle auto gain control v1, 'G' to toggle auto gain control v2.");
+
+        var numberOfLevels = Enum.GetValues(typeof(NoiseSuppressionLevel)).Length;
+        while (true)
+        {
+            if (Console.ReadKey(true).Key == ConsoleKey.A) // Handle AEC
+            {
+                apmModifier.EchoCancellation.Enabled = !apmModifier.EchoCancellation.Enabled;
+                Console.WriteLine($"AEC enabled: {apmModifier.EchoCancellation.Enabled}");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.S) // Handle noise suppression
+            {
+                apmModifier.NoiseSuppression.Enabled = !apmModifier.NoiseSuppression.Enabled;
+                Console.WriteLine($"Noise suppression enabled: {apmModifier.NoiseSuppression.Enabled}");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.D) // Handle noise suppression level
+            {
+                var currentIntValue = (int)apmModifier.NoiseSuppression.Level;
+
+                // Calculate the index of the next value, wrapping around using modulo (%)
+                var nextIntValue = (currentIntValue + 1) % numberOfLevels;
+
+                // Convert the next index back to the enum type
+                var nextLevel = (NoiseSuppressionLevel)nextIntValue;
+
+                // Update the level
+                apmModifier.NoiseSuppression.Level = nextLevel;
+                
+                Console.WriteLine($"Noise suppression level: {apmModifier.NoiseSuppression.Level}");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.F) // Handle Automatic Gain Control
+            {
+                apmModifier.AutomaticGainControl.Agc1Enabled = !apmModifier.AutomaticGainControl.Agc1Enabled;
+                Console.WriteLine($"Automatic Gain Control V1 enabled: {apmModifier.AutomaticGainControl.Agc1Enabled}");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.G) // Handle Automatic Gain Control
+            {
+                apmModifier.AutomaticGainControl.Agc2Enabled = !apmModifier.AutomaticGainControl.Agc2Enabled;
+                Console.WriteLine($"Automatic Gain Control V2 enabled: {apmModifier.AutomaticGainControl.Agc2Enabled}");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.H)
+            {
+                apmModifier.PostProcessGain += 1f;
+                Console.WriteLine($"Gain: {apmModifier.PostProcessGain}");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.J)
+            {
+                apmModifier.PostProcessGain -= 1f;
+                Console.WriteLine($"Gain: {apmModifier.PostProcessGain}");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.N) // Handle Device Selection
+            {
+                Console.WriteLine("\nSelect device:");
+                for (var i = 0; i < AudioEngine.Instance.PlaybackDeviceCount; i++)
+                {
+                    Console.WriteLine($"{i}: {AudioEngine.Instance.PlaybackDevices[i].Name}");
+                }
+
+                Console.WriteLine("Press any key to exit.");
+                var choice = Console.ReadKey().KeyChar;
+                if (int.TryParse(choice.ToString(), out var index) && index >= 0 && index < AudioEngine.Instance.PlaybackDeviceCount)
+                    AudioEngine.Instance.SwitchDevice(AudioEngine.Instance.PlaybackDevices[index]);
+                Console.WriteLine($"\nCurrent device: {AudioEngine.Instance.PlaybackDevices[index].Name}");
+                Console.WriteLine("Press any key to exit or press 'g' to change device.");
+            }
+            else if (Console.ReadKey(true).Key == ConsoleKey.Escape)
+                break;
+        }
+        
+        // Stop capturing and playing
         microphoneDataProvider.StopCapture();
         soundPlayer.Stop();
         Mixer.Master.RemoveComponent(soundPlayer);
         microphoneDataProvider.Dispose();
+    }
+    
+    public class GainModifier : SoundModifier
+    {
+        public float Gain { get; set; } = 1.0f;
+        
+        /// <inheritdoc />
+        public override float ProcessSample(float sample, int channel)
+        {
+            return sample * Gain;
+        }
     }
 
     private static void RecordAndPlaybackAudio()

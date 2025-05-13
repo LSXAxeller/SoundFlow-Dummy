@@ -234,7 +234,7 @@ public sealed class SurroundPlayer : SoundPlayerBase
         for (var frame = 0; frame < frameCount; frame++)
         {
             // Assuming base audio is mono
-            // TODO: refactor when support for getting audio data is added
+            // TODO: refactor when support for getting audio data is added (e.g., mono, stereo, 5.1 or 7.1, etc.)
             var inputSample = buffer[frame * channels];
 
             // down-mixing stereo to mono

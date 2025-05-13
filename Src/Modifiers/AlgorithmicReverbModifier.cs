@@ -46,7 +46,7 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
         [1176, 1248, 1337, 1418, 1490, 1559, 1631, 1691], // Channel 4
         [1189, 1261, 1350, 1431, 1505, 1574, 1648, 1708], // Channel 5
         [1202, 1274, 1363, 1444, 1520, 1589, 1665, 1725], // Channel 6
-        [1215, 1287, 1376, 1457, 1535, 1604, 1682, 1742] // Channel 7
+        [1215, 1287, 1376, 1457, 1535, 1604, 1682, 1742]  // Channel 7
     ];
 
     private static readonly float[][] AllPassTunings =
@@ -58,60 +58,23 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
         [608, 493, 393, 277], // Channel 4
         [621, 506, 406, 290], // Channel 5
         [634, 519, 419, 303], // Channel 6
-        [647, 532, 432, 316] // Channel 7
+        [647, 532, 432, 316]  // Channel 7
     ];
 
     private const float FixedGain = 0.015f;
+    private const int MaxCombDelaySamples = 8000; // Max delay for comb filters (e.g. ~180ms @ 44.1kHz)
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AlgorithmicReverbModifier" /> class.
     /// </summary>
     public AlgorithmicReverbModifier()
     {
-        var numChannels = AudioEngine.Channels;
-
-        // Initialize comb filters for each channel
-        _combFilters = new CombFilter[numChannels][];
-        _modulatedCombTuning = new float[numChannels * NumCombs];
-        for (var channel = 0; channel < numChannels; channel++)
-        {
-            _combFilters[channel] = new CombFilter[NumCombs];
-            for (var i = 0; i < NumCombs; i++)
-            {
-                var combTuning = CombTunings[channel % CombTunings.Length][i];
-                _combFilters[channel][i] = new CombFilter((int)combTuning);
-                _modulatedCombTuning[channel * NumCombs + i] = combTuning;
-            }
-        }
-
-        // Initialize all-pass filters for each channel
-        _allPassFilters = new AllPassFilter[numChannels][];
-        for (var channel = 0; channel < numChannels; channel++)
-        {
-            _allPassFilters[channel] = new AllPassFilter[NumAllPasses];
-            for (var i = 0; i < NumAllPasses; i++)
-            {
-                _allPassFilters[channel][i] =
-                    new AllPassFilter((int)AllPassTunings[channel % AllPassTunings.Length][i]);
-            }
-        }
-
-        var maxPreDelaySamples = (int)(AudioEngine.Instance.SampleRate * 0.1f); // Maximum pre-delay of 100ms
-        _preDelayBuffers = new float[numChannels][];
-        for (var channel = 0; channel < numChannels; channel++)
-        {
-            _preDelayBuffers[channel] = new float[maxPreDelaySamples];
-        }
-
-        _preDelayIndices = new int[numChannels];
-
-        // Initialize LFO phases for modulation
-        _lfoPhase = new float[numChannels];
-        for (var channel = 0; channel < numChannels; channel++)
-        {
-            _lfoPhase[channel] = channel * (MathF.PI / numChannels);
-        }
-
+        _combFilters = [];
+        _allPassFilters = [];
+        _preDelayBuffers = [];
+        _preDelayIndices = [];
+        _lfoPhase = [];
+        _modulatedCombTuning = [];
         UpdateParameters();
     }
 
@@ -121,7 +84,7 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
     public float Wet
     {
         get => _wet;
-        set => _wet = Math.Clamp(value, 0, 1);
+        set => _wet = Math.Clamp(value, 0f, 1f);
     }
 
     /// <summary>
@@ -132,8 +95,8 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
         get => _roomSize;
         set
         {
-            _roomSize = Math.Clamp(value, 0, 1);
-            UpdateParameters();
+            _roomSize = Math.Clamp(value, 0f, 1f);
+            UpdateReverbSettings();
         }
     }
 
@@ -145,8 +108,8 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
         get => _damp;
         set
         {
-            _damp = Math.Clamp(value, 0, 1);
-            UpdateParameters();
+            _damp = Math.Clamp(value, 0f, 1f);
+            UpdateReverbSettings();
         }
     }
 
@@ -156,7 +119,7 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
     public float Width
     {
         get => _width;
-        set => _width = Math.Clamp(value, 0, 1);
+        set => _width = Math.Clamp(value, 0f, 1f);
     }
 
     /// <summary>
@@ -167,7 +130,7 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
         get => _preDelay;
         set
         {
-            _preDelay = Math.Clamp(value, 0, 100);
+            _preDelay = Math.Clamp(value, 0f, 100f);
             _preDelaySamples = (int)(_preDelay * AudioEngine.Instance.SampleRate / 1000f);
         }
     }
@@ -178,51 +141,87 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
     public float Mix
     {
         get => _mix;
-        set => _mix = Math.Clamp(value, 0, 1);
+        set => _mix = Math.Clamp(value, 0f, 1f);
+    }
+
+    private void UpdateReverbSettings()
+    {
+        foreach (var filter in _combFilters)
+        {
+            if (filter == null) continue;
+            foreach (var innerFilter in filter)
+            {
+                if (innerFilter != null)
+                {
+                    innerFilter.Feedback = _roomSize;
+                    innerFilter.Damp = _damp;
+                }
+            }
+        }
     }
 
     private void UpdateParameters()
     {
         var numChannels = AudioEngine.Channels;
+        var structureChanged = false;
 
         // Ensure filter arrays are the correct size
         if (_combFilters.Length != numChannels)
         {
             _combFilters = new CombFilter[numChannels][];
             _modulatedCombTuning = new float[numChannels * NumCombs];
+            structureChanged = true;
         }
 
-        if (_allPassFilters.Length != numChannels) 
+        if (_allPassFilters.Length != numChannels)
+        {
             _allPassFilters = new AllPassFilter[numChannels][];
+            structureChanged = true;
+        }
 
-        // Initialize or reinitialize filters for each channel
         for (var channel = 0; channel < numChannels; channel++)
         {
-            if (_combFilters[channel].Length != 0) 
-                _combFilters[channel] = new CombFilter[NumCombs];
-
-            for (var i = 0; i < NumCombs; i++)
+            if (structureChanged || _combFilters[channel] == null || _combFilters[channel].Length != NumCombs)
             {
-                var combTuning = CombTunings[channel % CombTunings.Length][i];
-                _combFilters[channel][i] = new CombFilter((int)combTuning);
-                _modulatedCombTuning[channel * NumCombs + i] = combTuning;
-                _combFilters[channel][i].Feedback = _roomSize;
-                _combFilters[channel][i].Damp = _damp;
+                var newChannelCombs = new CombFilter[NumCombs];
+                for (var i = 0; i < NumCombs; i++)
+                {
+                    var combTuning = CombTunings[channel % CombTunings.Length][i];
+                    _modulatedCombTuning[channel * NumCombs + i] = combTuning;
+                    newChannelCombs[i] = new CombFilter((int)combTuning)
+                    {
+                        Feedback = _roomSize,
+                        Damp = _damp
+                    };
+                }
+                _combFilters[channel] = newChannelCombs;
+            }
+            else // Filters exist, ensure parameters are up-to-date if UpdateParameters was called for other reasons
+            {
+                 for (var i = 0; i < NumCombs; i++)
+                 {
+                    // Re-assign base tuning in case it could change (though CombTunings is static)
+                    _modulatedCombTuning[channel * NumCombs + i] = CombTunings[channel % CombTunings.Length][i];
+                    _combFilters[channel][i].Feedback = _roomSize;
+                    _combFilters[channel][i].Damp = _damp;
+                 }
             }
 
-            if (_allPassFilters[channel].Length != 0) _allPassFilters[channel] = new AllPassFilter[NumAllPasses];
-
-            for (var i = 0; i < NumAllPasses; i++)
+            if (structureChanged || _allPassFilters[channel] == null || _allPassFilters[channel].Length != NumAllPasses)
             {
-                _allPassFilters[channel][i] =
-                    new AllPassFilter((int)AllPassTunings[channel % AllPassTunings.Length][i]);
+                var newChannelAllPass = new AllPassFilter[NumAllPasses];
+                for (var i = 0; i < NumAllPasses; i++)
+                {
+                    newChannelAllPass[i] = new AllPassFilter((int)AllPassTunings[channel % AllPassTunings.Length][i]);
+                }
+                _allPassFilters[channel] = newChannelAllPass;
             }
         }
 
-        // Reinitialize pre-delay buffers if necessary
-        var maxPreDelaySamples = (int)(AudioEngine.Instance.SampleRate * 0.1f); // Maximum pre-delay of 100ms
-        if (_preDelayBuffers.Length != numChannels ||
-            (_preDelayBuffers.Length > 0 && _preDelayBuffers[0].Length != maxPreDelaySamples))
+        var maxPreDelaySamples = (int)(AudioEngine.Instance.SampleRate * 0.1f); // Max 100ms
+        maxPreDelaySamples = Math.Max(1, maxPreDelaySamples); // Ensure at least 1 sample
+
+        if (structureChanged || _preDelayBuffers.Length != numChannels || (_preDelayBuffers.Length > 0 && (_preDelayBuffers[0] == null || _preDelayBuffers[0].Length != maxPreDelaySamples)))
         {
             _preDelayBuffers = new float[numChannels][];
             for (var channel = 0; channel < numChannels; channel++)
@@ -231,98 +230,113 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
             }
         }
 
-        _preDelayIndices = new int[numChannels];
+        if (structureChanged || _preDelayIndices.Length != numChannels)
+        {
+            _preDelayIndices = new int[numChannels]; // Resets to 0
+        }
 
-        // Reinitialize LFO phases if necessary
-        if (_lfoPhase.Length != numChannels)
+        if (structureChanged || _lfoPhase.Length != numChannels)
         {
             var newLfoPhase = new float[numChannels];
-            for (var channel = 0; channel < numChannels && channel < _lfoPhase.Length; channel++)
+            for (var channel = 0; channel < numChannels; channel++)
             {
-                newLfoPhase[channel] = _lfoPhase[channel]; // Copy existing phases
+                newLfoPhase[channel] = (numChannels > 0) ? channel * (MathF.PI / numChannels) : 0;
             }
-
-            for (var channel = _lfoPhase.Length; channel < numChannels; channel++)
-            {
-                newLfoPhase[channel] = channel * (MathF.PI / numChannels); // Initialize new phases
-            }
-
             _lfoPhase = newLfoPhase;
+        }
+
+        // Update preDelaySamples based on current sample rate if not explicitly set yet
+        if (_preDelaySamples == 0 && _preDelay > 0)
+        {
+             _preDelaySamples = (int)(_preDelay * AudioEngine.Instance.SampleRate / 1000f);
         }
     }
 
     /// <inheritdoc />
     public override float ProcessSample(float sample, int channel)
     {
-        // Ensure channel index is within bounds
-        if (channel < 0 || channel >= AudioEngine.Channels)
-            throw new ArgumentOutOfRangeException(nameof(channel), "Channel index out of range.");
+        if (channel < 0 || channel >= AudioEngine.Channels || channel >= _combFilters.Length) // Safety check
+        {
+            // This case should ideally not happen if AudioEngine.Channels is consistent
+            // Or could return 'sample' to bypass processing for misconfigured channels
+            return sample;
+        }
 
-        // Calculate LFO value for modulation
         var lfo = MathF.Sin(_lfoPhase[channel]) * ModulationDepth;
-
-        // Update LFO phase
         _lfoPhase[channel] += 2 * MathF.PI * ModulationRate / AudioEngine.Instance.SampleRate;
         if (_lfoPhase[channel] > MathF.PI)
             _lfoPhase[channel] -= 2 * MathF.PI;
 
         var input = sample * FixedGain;
 
-        // Apply pre-delay
-        _preDelayBuffers[channel][_preDelayIndices[channel]] = input;
-        input = _preDelayBuffers[channel][
-            (_preDelayIndices[channel] - _preDelaySamples + _preDelayBuffers[channel].Length) %
-            _preDelayBuffers[channel].Length];
+        if (_preDelaySamples > 0 && _preDelayBuffers[channel].Length > 0)
+        {
+            _preDelayBuffers[channel][_preDelayIndices[channel]] = input;
+            input = _preDelayBuffers[channel][(_preDelayIndices[channel] - _preDelaySamples + _preDelayBuffers[channel].Length) % _preDelayBuffers[channel].Length];
+            _preDelayIndices[channel] = (_preDelayIndices[channel] + 1) % _preDelayBuffers[channel].Length;
+        }
+
 
         float earlyReflectionsOutput = 0;
         float reverbTailOutput = 0;
 
-        // Process comb filters with modulation
+        var channelCombs = _combFilters[channel];
+        if (channelCombs == null) return sample; // Should not happen if UpdateParameters is correct
+
         for (var i = 0; i < NumCombs; i++)
         {
-            // Modulate comb filter delay lengths
-            var modulatedDelay = _modulatedCombTuning[channel * NumCombs + i] * (1 + lfo);
-            _combFilters[channel][i].SetDelay((int)modulatedDelay);
+            var comb = channelCombs[i];
+            if (comb == null) continue; // Should not happen
 
-            var combOutput = _combFilters[channel][i].Process(input);
+            var modulatedDelay = _modulatedCombTuning[channel * NumCombs + i] * (1 + lfo);
+            comb.SetDelay((int)modulatedDelay);
+
+            var combOutput = comb.Process(input);
             if (i < NumCombs / 2)
-                earlyReflectionsOutput += combOutput; // Sum the first half for early reflections
+                earlyReflectionsOutput += combOutput;
             reverbTailOutput += combOutput;
         }
 
-        // Process all-pass filters
+        var channelAllPasses = _allPassFilters[channel];
+        if (channelAllPasses == null) return sample; // Should not happen
+
         for (var i = 0; i < NumAllPasses; i++)
         {
-            reverbTailOutput = _allPassFilters[channel][i].Process(reverbTailOutput);
+            var allPass = channelAllPasses[i];
+            if (allPass == null) continue; // Should not happen
+            reverbTailOutput = allPass.Process(reverbTailOutput);
         }
 
-        _preDelayIndices[channel] = (_preDelayIndices[channel] + 1) % _preDelayBuffers[channel].Length;
-
-        // Mix early reflections and reverb tail
         var mixedOutput = earlyReflectionsOutput * (1 - _mix) + reverbTailOutput * _mix;
 
-        // Apply stereo width (simplified for multichannel) and wet/dry mix
-        var spread = _width * (channel - (AudioEngine.Channels - 1) / 2f) / (AudioEngine.Channels - 1);
+        var spread = 0f;
+        if (AudioEngine.Channels > 1)
+        {
+            spread = _width * (channel - (AudioEngine.Channels - 1) / 2f) / (AudioEngine.Channels - 1);
+        }
 
         return sample * (1 - _wet) + mixedOutput * _wet * (1 - spread);
     }
 
     private class CombFilter
     {
-        private float[]? _buffer;
+        private float[] _buffer;
         private int _bufferIndex;
         private float _feedback;
         private float _damp1;
         private float _damp2;
         private float _lastOut;
-        private int _delay;
 
-        public CombFilter(int delay)
+        public CombFilter(int initialDelay)
         {
-            SetDelay(delay);
             _feedback = 0.5f;
             _damp1 = 0.5f;
-            _damp2 = 0.5f;
+            _damp2 = 1f - _damp1;
+            _lastOut = 0f;
+            _bufferIndex = 0;
+            // Initialize buffer robustly
+            var clampedDelay = Math.Clamp(initialDelay, 1, MaxCombDelaySamples);
+            _buffer = new float[clampedDelay];
         }
 
         public float Feedback
@@ -337,43 +351,50 @@ public sealed class AlgorithmicReverbModifier : SoundModifier
             set
             {
                 _damp1 = value;
-                _damp2 = 1 - value;
+                _damp2 = 1f - value;
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public float Process(float input)
         {
-            var output = _buffer![_bufferIndex];
+            var output = _buffer[_bufferIndex];
             _lastOut = (output * _damp2) + (_lastOut * _damp1);
             _buffer[_bufferIndex] = input + _lastOut * _feedback;
             _bufferIndex = (_bufferIndex + 1) % _buffer.Length;
             return output;
         }
 
-        public void SetDelay(int delay, bool resetBuffer = true)
+        public void SetDelay(int delay)
         {
-            // Clamp the delay to a reasonable range
-            delay = Math.Clamp(delay, 1, int.MaxValue);
+            delay = Math.Clamp(delay, 1, MaxCombDelaySamples);
 
-            if (_buffer != null && delay == _buffer.Length) 
+            if (_buffer.Length == delay)
                 return;
-            
+
+            // Reallocate buffer. This is expensive if called frequently per sample.
+            // For Freeverb-style LFO modulation on delay lines, a common approach is fixed-size buffer
+            // and modulated read pointers, or accepting slight artifacts/state reset.
             _buffer = new float[delay];
-            _delay = delay;
-            if (resetBuffer)
-            {
-                Array.Clear(_buffer, 0, _buffer.Length);
-                _bufferIndex = 0;
-            }
+            Array.Clear(_buffer, 0, _buffer.Length); // Clear new buffer
+            _bufferIndex = 0; // Reset index
+            _lastOut = 0f; // Reset filter state
         }
     }
-    
-    private class AllPassFilter(int delay)
+
+    private class AllPassFilter
     {
-        private readonly float[] _buffer = new float[delay];
+        private readonly float[] _buffer;
         private int _bufferIndex;
         private const float Feedback = 0.5f;
+
+        public AllPassFilter(int delay)
+        {
+            // Clamp delay to a reasonable range for AllPass filters
+            delay = Math.Clamp(delay, 1, MaxCombDelaySamples / 2); // Typically shorter than combs
+            _buffer = new float[delay];
+            _bufferIndex = 0;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public float Process(float input)
