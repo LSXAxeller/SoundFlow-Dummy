@@ -191,7 +191,7 @@ jobs:
         shell: bash
         run: |
           cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
-          BUILD_DIR="../../build_${{ matrix.rid }}"
+          BUILD_DIR="build_${{ matrix.rid }}"
           EXTRA_ARGS="--buildtype=release"
           
           if [ -n "${{ matrix.cross_file }}" ]; then
@@ -204,7 +204,7 @@ jobs:
         shell: bash
         run: |
           cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
-          BUILD_DIR="../../build_${{ matrix.rid }}"
+          BUILD_DIR="build_${{ matrix.rid }}"
           ninja -C $BUILD_DIR
 
       # Package the artifacts
