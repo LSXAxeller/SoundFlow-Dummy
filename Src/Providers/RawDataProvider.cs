@@ -10,7 +10,7 @@ namespace SoundFlow.Providers;
 ///     Provides audio data from a raw PCM stream.
 ///     This provider is designed for streams that directly contain raw PCM bytes without any encoding headers.
 /// </summary>
-public class RawDataProvider : ISoundDataProvider, IDisposable
+public class RawDataProvider : ISoundDataProvider
 {
     private readonly Stream _pcmStream;
     private readonly SampleFormat _sampleFormat;

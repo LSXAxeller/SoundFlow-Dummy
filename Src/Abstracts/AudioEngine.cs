@@ -342,7 +342,7 @@ public abstract class AudioEngine : IDisposable
     /// <param name="channels">The number of audio channels.</param>
     /// <param name="sampleRate">The sample rate of the input audio.</param>
     /// <returns>An instance of a sound encoder.</returns>
-    protected internal abstract ISoundEncoder CreateEncoder(string filePath, EncodingFormat encodingFormat,
+    public abstract ISoundEncoder CreateEncoder(string filePath, EncodingFormat encodingFormat,
         SampleFormat sampleFormat, int channels, int sampleRate);
 
     /// <summary>
@@ -350,7 +350,7 @@ public abstract class AudioEngine : IDisposable
     /// </summary>
     /// <param name="stream">The stream containing the audio data.</param>
     /// <returns>An instance of a sound decoder.</returns>
-    protected internal abstract ISoundDecoder CreateDecoder(Stream stream);
+    public abstract ISoundDecoder CreateDecoder(Stream stream);
 
     /// <summary>
     ///     Switches the audio engine to use the specified device.

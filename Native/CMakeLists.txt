@@ -16,6 +16,8 @@ add_library(${LIBRARY_NAME} SHARED
 
 # Platform-specific configurations
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    add_definitions(-DMA_DLL)
+
     if (CMAKE_COMPILER_IS_GNUCC)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++")
 
@@ -100,7 +102,14 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "iOS")
         XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
         XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
     )
-
+    
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # Android: libminiaudio.so
+    set_target_properties(${LIBRARY_NAME} PROPERTIES
+        PREFIX "lib"
+        SUFFIX ".so"
+    )
+    
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     # Emscripten: libminiaudio.js and libminiaudio.wasm
     set_target_properties(${LIBRARY_NAME} PROPERTIES

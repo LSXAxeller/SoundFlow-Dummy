@@ -71,4 +71,11 @@ public sealed class StreamDataProvider : ISoundDataProvider
 
         PositionChanged?.Invoke(this, new PositionChangedEventArgs(Position));
     }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _decoder.Dispose();
+        _stream.Dispose();
+    }
 }

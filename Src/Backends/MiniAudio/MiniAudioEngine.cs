@@ -107,14 +107,14 @@ public sealed class MiniAudioEngine(
 
 
     /// <inheritdoc />
-    protected internal override ISoundEncoder CreateEncoder(string filePath, EncodingFormat encodingFormat,
+    public override ISoundEncoder CreateEncoder(string filePath, EncodingFormat encodingFormat,
         SampleFormat sampleFormat, int encodingChannels, int sampleRate)
     {
         return new MiniAudioEncoder(filePath, encodingFormat, sampleFormat, encodingChannels, sampleRate);
     }
 
     /// <inheritdoc />
-    protected internal override ISoundDecoder CreateDecoder(Stream stream)
+    public override ISoundDecoder CreateDecoder(Stream stream)
     {
         return new MiniAudioDecoder(stream);
     }

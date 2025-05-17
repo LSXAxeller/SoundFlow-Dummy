@@ -6,7 +6,6 @@
 #define LIBRARY_H
 
 #include <vector>
-
 #include "Submodules/miniaudio/miniaudio.h"
 
 struct native_data_format {

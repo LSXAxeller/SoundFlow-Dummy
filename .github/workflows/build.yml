@@ -19,13 +19,15 @@ jobs:
             arch: x64
             cmake_target_arch: x64
             lib_extension: ".dll"
+            toolchain: "Visual Studio 17 2022"
 
           - os: windows-latest
             rid: win-x86
             platform: Windows
-            arch: Win32
+            arch: x86
             cmake_target_arch: Win32
             lib_extension: ".dll"
+            toolchain: "Visual Studio 17 2022"
 
           - os: windows-latest
             rid: win-arm64
@@ -33,6 +35,7 @@ jobs:
             arch: ARM64
             cmake_target_arch: ARM64
             lib_extension: ".dll"
+            toolchain: "Visual Studio 17 2022"
 
           # Linux builds
           - os: ubuntu-latest
@@ -114,6 +117,37 @@ jobs:
           mkdir -p ${{ github.workspace }}/Native/build
           mkdir -p ${{ github.workspace }}/Native/cmake
 
+      # Windows-specific setup
+      - name: Setup Visual Studio (Windows)
+        if: matrix.platform == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Windows SDK (Windows)
+        if: matrix.platform == 'Windows'
+        uses: GuillaumeFalourd/setup-windows10-sdk-action@v2.4
+
+      - name: Install VS Build Tools
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          # Install Chocolatey
+          Set-ExecutionPolicy Bypass -Scope Process -Force;
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          
+          # Install Visual Studio Build Tools
+          choco install visualstudio2019buildtools --package-parameters "--includeRecommended --includeOptional --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64" --no-progress
+          
+          # Find and set dumpbin path
+          $vsPath = "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
+          $latestVersion = (Get-ChildItem -Path $vsPath | Sort-Object Name -Descending | Select-Object -First 1).Name
+          $dumpbinPath = "$vsPath\$latestVersion\bin\Hostx64\x64"
+          
+          # Add to PATH
+          "DUMPBIN_PATH=$dumpbinPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PATH=$dumpbinPath;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Linux/Android dependencies
       - name: Install Dependencies (Linux)
         if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
         run: |
@@ -124,65 +158,18 @@ jobs:
         if: matrix.platform == 'Android'
         uses: android-actions/setup-android@v2
 
-      # Install MSYS2 and MinGW on Windows
-      - name: Install Dependencies (Windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            ninja
-          path-type: msys
-
-      # Install Visual Studio Build Tools using Chocolatey and PowerShell
-      - name: Install VS Build Tools (PowerShell)
-        if: matrix.os == 'windows-latest'
-        shell: powershell
-        run: |
-          # Install Chocolatey
-          Set-ExecutionPolicy Bypass -Scope Process -Force;
-          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;
-          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-
-          # Install Visual Studio Build Tools 2019
-          choco install visualstudio2019buildtools --package-parameters "--includeRecommended --includeOptional --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64" --no-progress
-
-          # Set up PATH for Visual Studio 2019
-          $vsPath = "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
-          $latestVersion = (Get-ChildItem -Path $vsPath | Sort-Object Name -Descending | Select-Object -First 1).Name
-          $dumpbinPath = "$vsPath\$latestVersion\bin\Hostx64\x64"
-
-          # Add to PATH using Environment File (GitHub Actions recommended method)
-          $envPath = "${env:GITHUB_ENV}"
-          "DUMPBIN_PATH=$dumpbinPath" | Out-File -FilePath $envPath -Encoding utf8 -Append
-          "PATH=$dumpbinPath`:$env:PATH" | Out-File -FilePath $envPath -Encoding utf8 -Append
-
-      # Verify Dependencies on Windows
-      - name: Verify Dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          which gcc
-          which g++
-          which cmake
-          which ninja
-          gcc --version
-          g++ --version
-          cmake --version
-          ninja --version
-
-      # Configure CMake for Windows
       - name: Configure CMake (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
+        if: matrix.platform == 'Windows'
+        shell: cmd
         working-directory: ${{ github.workspace }}/Native
         run: |
-          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G "%TOOLCHAIN%" -A %CMAKE_TARGET_ARCH% -DCMAKE_BUILD_TYPE=Release
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+          CMAKE_TARGET_ARCH: ${{ matrix.cmake_target_arch }}
 
+      # Configure CMake for all platforms
       - name: Configure CMake (Unix)
-        if: matrix.os != 'Windows'
         shell: bash
         working-directory: ${{ github.workspace }}/Native
         run: |
@@ -204,12 +191,13 @@ jobs:
           fi
           cmake -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
 
+      # Build steps
       - name: Build (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
+        if: matrix.platform == 'Windows'
+        shell: cmd
         working-directory: ${{ github.workspace }}/Native/build
         run: |
-          ninja
+          cmake --build . --config Release
 
       - name: Build (iOS)
         if: matrix.platform == 'iOS'
@@ -225,37 +213,37 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Build (Unix)
-        if: runner.os != 'Windows' && matrix.platform != 'iOS'
+        if: matrix.platform != 'Windows' && matrix.platform != 'iOS'
         shell: bash
         working-directory: ${{ github.workspace }}/Native/build
         run: |
           cmake --build . --config Release
 
+      # Artifact collection
       - name: Create Output Directory
         shell: bash
         run: |
           mkdir -p runtimes/${{ matrix.rid }}/native
 
-      - name: Copy Library (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
+      - name: Copy Library
+        shell: bash
         run: |
           mkdir -p runtimes/${{ matrix.rid }}/native
-          cp "${{ github.workspace }}/Native/build/libminiaudio${{ matrix.lib_extension }}" "runtimes/${{ matrix.rid }}/native/"
+          if [ "${{ matrix.platform }}" == "Windows" ]; then
+            cp "${{ github.workspace }}/Native/build/Release/miniaudio.dll" "runtimes/${{ matrix.rid }}/native/"
+          elif [ "${{ matrix.platform }}" == "iOS" ]; then
+            cp -r "${{ github.workspace }}/Native/build/Release-iphoneos/miniaudio.framework" "runtimes/${{ matrix.rid }}/native/"
+          else
+            cp "${{ github.workspace }}/Native/build/libminiaudio${{ matrix.lib_extension }}" "runtimes/${{ matrix.rid }}/native/"
+          fi
 
+      # Dependency analysis
       - name: Analyze Dependencies (Windows)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          $dumpbinPath = "${env:DUMPBIN_PATH}" # Get DUMPBIN_PATH from env
           Write-Host "Dependencies for Windows:"
-          & "$dumpbinPath\dumpbin.exe" /DEPENDENTS "runtimes/${{ matrix.rid }}/native/libminiaudio.dll"
-
-      - name: Copy Library (iOS)
-        if: matrix.platform == 'iOS'
-        shell: bash
-        run: |
-          cp -r "${{ github.workspace }}/Native/build/Release-iphoneos/miniaudio.framework" "runtimes/${{ matrix.rid }}/native/"
+          & "$env:DUMPBIN_PATH\dumpbin.exe" /DEPENDENTS "runtimes/${{ matrix.rid }}/native/miniaudio.dll"
 
       - name: Analyze Dependencies (iOS)
         if: matrix.platform == 'iOS'
@@ -265,12 +253,6 @@ jobs:
           echo "Dependencies for iOS:"
           otool -L "$FRAMEWORK_BINARY"
 
-      - name: Copy Library (Android)
-        if: matrix.platform == 'Android'
-        shell: bash
-        run: |
-          cp "${{ github.workspace }}/Native/build/libminiaudio.so" "runtimes/${{ matrix.rid }}/native/"
-
       - name: Analyze Dependencies (Android)
         if: matrix.platform == 'Android'
         shell: bash
@@ -279,31 +261,19 @@ jobs:
           echo "Dependencies for Android:"
           readelf -d "$LIB_PATH"
 
-      - name: Copy Library (Unix)
-        if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
-        shell: bash
-        run: |
-          cp "${{ github.workspace }}/Native/build/libminiaudio${{ matrix.lib_extension }}" "runtimes/${{ matrix.rid }}/native/"
-
       - name: Analyze Dependencies (Linux)
         if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
         shell: bash
         run: |
-          LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio${{ matrix.lib_extension }}"
+          LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio.so"
           echo "Dependencies for Linux:"
           ldd "$LIB_PATH"
-
-      - name: Copy Library (macOS)
-        if: matrix.os == 'macos-latest' && matrix.platform == 'macOS'
-        shell: bash
-        run: |
-          cp "${{ github.workspace }}/Native/build/libminiaudio${{ matrix.lib_extension }}" "runtimes/${{ matrix.rid }}/native/"
 
       - name: Analyze Dependencies (macOS)
         if: matrix.os == 'macos-latest' && matrix.platform == 'macOS'
         shell: bash
         run: |
-          LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio${{ matrix.lib_extension }}"
+          LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio.dylib"
           echo "Dependencies for macOS:"
           otool -L "$LIB_PATH"
 
