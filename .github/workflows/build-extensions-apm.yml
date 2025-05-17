@@ -211,6 +211,7 @@ jobs:
       - name: Copy and rename artifacts
         shell: bash
         run: |
+          cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
           BUILD_DIR="build_${{ matrix.rid }}/webrtc/modules/audio_processing"
           OUTPUT_DIR="runtimes/${{ matrix.rid }}/native"
           
@@ -235,6 +236,7 @@ jobs:
         if: matrix.platform == 'Windows'
         shell: bash
         run: |
+          cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
           echo "Dependencies for Windows (MinGW):"
           objdump -p "runtimes/${{ matrix.rid }}/native/webrtc-apm.dll" | grep "DLL Name:"
           echo "Imported symbols:"
@@ -244,6 +246,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
         shell: bash
         run: |
+          cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.so"
           echo "=== Library Information ==="
           file "$LIB_PATH"
@@ -271,6 +274,7 @@ jobs:
         if: matrix.platform == 'Android'
         shell: bash
         run: |
+          cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.so"
           echo "Dependencies for Android:"
           readelf -d "$LIB_PATH"
@@ -281,6 +285,7 @@ jobs:
         if: matrix.os == 'macos-latest' && matrix.platform == 'macOS'
         shell: bash
         run: |
+          cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.dylib"
           echo "Dependencies for macOS:"
           otool -L "$LIB_PATH"
@@ -291,6 +296,7 @@ jobs:
         if: matrix.platform == 'iOS'
         shell: bash
         run: |
+          cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.dylib"
           echo "Dependencies for iOS:"
           otool -L "$LIB_PATH"
@@ -301,7 +307,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.rid }}
-          path: runtimes/${{ matrix.rid }}
+          path: Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/runtimes/${{ matrix.rid }}
 
   package:
     needs: build
