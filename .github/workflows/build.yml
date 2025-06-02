@@ -177,7 +177,6 @@ jobs:
       - name: Build on FreeBSD VM
         if: matrix.platform == 'FreeBSD'
         uses: vmactions/freebsd-vm@v1
-        working-directory: ${{ github.workspace }}/Native
         with:
           release: ${{ matrix.freebsd_release }}
           arch: ${{ matrix.arch }}
@@ -186,6 +185,8 @@ jobs:
             pkg install -y cmake gcc g++
           run: |
             set -ex # Exit on error and print commands
+            cd $GITHUB_WORKSPACE/Native
+            
             echo "--- System Information (inside FreeBSD VM) ---"
             freebsd-version
             uname -a
