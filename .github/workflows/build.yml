@@ -182,7 +182,7 @@ jobs:
           arch: ${{ matrix.arch }}
           usesh: true
           prepare: |
-            pkg install -y cmake gcc g++
+            pkg install -y cmake gcc
           run: |
             set -ex # Exit on error and print commands
             cd $GITHUB_WORKSPACE/Native
