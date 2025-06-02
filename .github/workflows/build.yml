@@ -10,12 +10,96 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows builds
+          - os: windows-latest
+            rid: win-x64
+            platform: Windows
+            arch: x64
+            cmake_target_arch: x64
+            lib_extension: ".dll"
+            toolchain: "Visual Studio 17 2022"
+
+          - os: windows-latest
+            rid: win-x86
+            platform: Windows
+            arch: x86
+            cmake_target_arch: Win32
+            lib_extension: ".dll"
+            toolchain: "Visual Studio 17 2022"
+
+          - os: windows-latest
+            rid: win-arm64
+            platform: Windows
+            arch: ARM64
+            cmake_target_arch: ARM64
+            lib_extension: ".dll"
+            toolchain: "Visual Studio 17 2022"
+
           # Linux builds
           - os: ubuntu-22.04
             rid: linux-x64
             platform: Linux
             arch: x86_64
             cmake_target_arch: x64
+            lib_extension: ".so"
+
+          - os: ubuntu-22.04
+            rid: linux-arm
+            platform: Linux
+            arch: armv7l
+            cmake_target_arch: arm
+            lib_extension: ".so"
+
+          - os: ubuntu-22.04
+            rid: linux-arm64
+            platform: Linux
+            arch: aarch64
+            cmake_target_arch: aarch64
+            lib_extension: ".so"
+
+          # macOS builds
+          - os: macos-latest
+            rid: osx-arm64
+            platform: macOS
+            arch: arm64
+            cmake_target_arch: arm64
+            lib_extension: ".dylib"
+
+          - os: macos-latest
+            rid: osx-x64
+            platform: macOS
+            arch: x86_64
+            cmake_target_arch: x86_64
+            lib_extension: ".dylib"
+
+          # iOS builds
+          - os: macos-latest
+            rid: ios-arm64
+            platform: iOS
+            arch: arm64
+            cmake_target_arch: arm64
+            lib_extension: ".framework"
+
+          # Android builds
+          - os: ubuntu-22.04
+            rid: android-arm
+            platform: Android
+            arch: armeabi-v7a
+            cmake_target_arch: armeabi-v7a
+            lib_extension: ".so"
+
+          - os: ubuntu-22.04
+            rid: android-arm64
+            platform: Android
+            arch: arm64-v8a
+            cmake_target_arch: arm64-v8a
+            lib_extension: ".so"
+
+          - os: ubuntu-22.04
+            rid: android-x64
+            platform: Android
+            arch: x86_64
+            cmake_target_arch: x86_64
             lib_extension: ".so"
 
     name: Build for ${{ matrix.platform }} - ${{ matrix.arch }}
