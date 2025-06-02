@@ -2,8 +2,6 @@ name: Build Native Library
 
 on:
   push:
-    paths:
-      - 'Native/**'
 
 jobs:
   build:
@@ -38,21 +36,21 @@ jobs:
             toolchain: "Visual Studio 17 2022"
 
           # Linux builds
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-x64
             platform: Linux
             arch: x86_64
             cmake_target_arch: x64
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-arm
             platform: Linux
             arch: armv7l
             cmake_target_arch: arm
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-arm64
             platform: Linux
             arch: aarch64
@@ -83,26 +81,43 @@ jobs:
             lib_extension: ".framework"
 
           # Android builds
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: android-arm
             platform: Android
             arch: armeabi-v7a
             cmake_target_arch: armeabi-v7a
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: android-arm64
             platform: Android
             arch: arm64-v8a
             cmake_target_arch: arm64-v8a
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: android-x64
             platform: Android
             arch: x86_64
             cmake_target_arch: x86_64
             lib_extension: ".so"
+
+          # FreeBSD builds
+          - os: ubuntu-latest
+            rid: freebsd-x64
+            platform: FreeBSD
+            arch: x86_64
+            cmake_target_arch: amd64
+            lib_extension: ".so"
+            freebsd_release: "14.2"
+
+          - os: ubuntu-latest
+            rid: freebsd-arm64
+            platform: FreeBSD
+            arch: aarch64
+            cmake_target_arch: arm64
+            lib_extension: ".so"
+            freebsd_release: "14.2"
 
     name: Build for ${{ matrix.platform }} - ${{ matrix.arch }}
 
@@ -127,7 +142,7 @@ jobs:
         uses: GuillaumeFalourd/setup-windows10-sdk-action@v2.4
 
       - name: Install VS Build Tools
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'Windows'
         shell: powershell
         run: |
           # Install Chocolatey
@@ -149,7 +164,7 @@ jobs:
 
       # Linux/Android dependencies
       - name: Install Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
+        if: matrix.platform == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake gcc g++
@@ -157,6 +172,51 @@ jobs:
       - name: Install Dependencies (Android)
         if: matrix.platform == 'Android'
         uses: android-actions/setup-android@v2
+
+      # FreeBSD VM setup and build
+      - name: Build on FreeBSD VM
+        if: matrix.platform == 'FreeBSD'
+        uses: vmactions/freebsd-vm@v1
+        working-directory: ${{ github.workspace }}/Native
+        with:
+          release: ${{ matrix.freebsd_release }}
+          arch: ${{ matrix.arch }}
+          usesh: true
+          prepare: |
+            pkg install -y cmake gcc g++
+          run: |
+            set -ex # Exit on error and print commands
+            echo "--- System Information (inside FreeBSD VM) ---"
+            freebsd-version
+            uname -a
+            echo "Compiler version:"
+            cc --version || clang --version || gcc --version
+            echo "CMake version:"
+            cmake --version
+            echo "Installed CMake package info:"
+            pkg info cmake
+
+            echo "--- Current directory (inside VM): $(pwd) ---"
+            ls -la
+
+            echo "--- Configuring CMake for FreeBSD ---"
+            CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_target_arch }}"
+            
+            # Clean any existing build directory from host sync and create fresh for VM
+            rm -rf build
+            mkdir build
+            
+            # Configure CMake from the Native directory, outputting to 'build' subdirectory
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
+            
+            echo "--- Building for FreeBSD ---"
+            cmake --build build --config Release
+            
+            echo "--- Built library path (inside VM's build directory) ---"
+            ls -l build/libminiaudio${{ matrix.lib_extension }}
+
+            echo "--- Analyzing Dependencies for FreeBSD (inside VM) ---"
+            ldd build/libminiaudio${{ matrix.lib_extension }}
 
       - name: Configure CMake (Windows)
         if: matrix.platform == 'Windows'
@@ -168,14 +228,15 @@ jobs:
           TOOLCHAIN: ${{ matrix.toolchain }}
           CMAKE_TARGET_ARCH: ${{ matrix.cmake_target_arch }}
 
-      # Configure CMake for all platforms
-      - name: Configure CMake (Unix)
+      # Configure CMake for non-Windows, non-FreeBSD platforms
+      - name: Configure CMake (Unix-like hosts - Linux, macOS, iOS, Android)
+        if: matrix.platform != 'Windows' && matrix.platform != 'FreeBSD'
         shell: bash
         working-directory: ${{ github.workspace }}/Native
         run: |
           CMAKE_FLAGS=""
           if [ "${{ matrix.platform }}" == "Android" ]; then
-            CMAKE_FLAGS="-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.arch }} -DANDROID_PLATFORM=android-21"
+            CMAKE_FLAGS="-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.arch }} -DANDROID_PLATFORM=android-21 -DCMAKE_ANDROID_ARCH_ABI=${{ matrix.cmake_target_arch }}"
           elif [ "${{ matrix.platform }}" == "iOS" ]; then
             CMAKE_FLAGS="-G Xcode \
               -DCMAKE_SYSTEM_NAME=iOS \
@@ -212,8 +273,9 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Build (Unix)
-        if: matrix.platform != 'Windows' && matrix.platform != 'iOS'
+      # Build for non-Windows, non-iOS, non-FreeBSD platforms
+      - name: Build (Unix-like hosts - Linux, macOS, Android)
+        if: matrix.platform != 'Windows' && matrix.platform != 'iOS' && matrix.platform != 'FreeBSD'
         shell: bash
         working-directory: ${{ github.workspace }}/Native/build
         run: |
@@ -239,7 +301,7 @@ jobs:
 
       # Dependency analysis
       - name: Analyze Dependencies (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'Windows'
         shell: powershell
         run: |
           Write-Host "Dependencies for Windows:"
@@ -262,7 +324,7 @@ jobs:
           readelf -d "$LIB_PATH"
 
       - name: Analyze Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
+        if: matrix.platform == 'Linux'
         shell: bash
         run: |
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio.so"
@@ -270,7 +332,7 @@ jobs:
           ldd "$LIB_PATH"
 
       - name: Analyze Dependencies (macOS)
-        if: matrix.os == 'macos-latest' && matrix.platform == 'macOS'
+        if: matrix.platform == 'macOS'
         shell: bash
         run: |
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio.dylib"
@@ -285,7 +347,7 @@ jobs:
 
   package:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
