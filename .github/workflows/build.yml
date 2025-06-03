@@ -2,8 +2,6 @@ name: Build Native Library
 
 on:
   push:
-    paths:
-      - 'Native/**'
 
 jobs:
   build-freebsd-x64:
