@@ -2,6 +2,8 @@ name: Build Native Library
 
 on:
   push:
+    paths:
+      - 'Native/**'
 
 jobs:
   build-freebsd-x64:
@@ -136,6 +138,7 @@ jobs:
         with:
           name: freebsd-arm64
           path: runtimes/freebsd-arm64
+  
   build:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -287,6 +290,16 @@ jobs:
       - name: Install Dependencies (Android)
         if: matrix.platform == 'Android'
         uses: android-actions/setup-android@v2
+        
+      - name: Install cross-compilation tools (Linux)
+        if: matrix.platform == 'Linux' && (matrix.arch == 'armv7l' || matrix.arch == 'aarch64')
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.arch }}" == "armv7l" ]; then
+            sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+          elif [ "${{ matrix.arch }}" == "aarch64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          fi
 
       - name: Configure CMake (Windows)
         if: matrix.platform == 'Windows'
@@ -317,7 +330,14 @@ jobs:
           elif [ "${{ matrix.platform }}" == "macOS" ]; then
             CMAKE_FLAGS="-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_target_arch }}"
           elif [ "${{ matrix.platform }}" == "Linux" ]; then
-            CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_target_arch }}"
+            # Add specific flags for Linux cross-compilation
+            if [ "${{ matrix.arch }}" == "armv7l" ]; then
+              CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=arm -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++"
+            elif [ "${{ matrix.arch }}" == "aarch64" ]; then
+              CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++"
+            else
+              CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=x86_64"
+            fi
           fi
           cmake -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
 
