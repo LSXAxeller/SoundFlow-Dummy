@@ -48,12 +48,12 @@ jobs:
             cross_file: "linux-arm64.crossfile"
 
           # macOS builds
-          - os: macos-13
+          - os: macos-latest
             rid: osx-x64
             platform: macOS
             arch: x86_64
             toolchain: clang
-            cross_file: ""
+            cross_file: "osx-x64.crossfile"
 
           - os: macos-latest
             rid: osx-arm64
@@ -228,6 +228,65 @@ jobs:
           
           echo "Copied artifact to:"
           ls -l "$OUTPUT_DIR"
+
+      # Verify the architecture of the compiled binary
+      - name: Verify Binary Architecture
+        shell: bash
+        run: |
+          # Determine the binary path based on the platform
+          if [ "${{ matrix.platform }}" == "Windows" ]; then
+            BINARY_PATH="runtimes/${{ matrix.rid }}/native/webrtc-apm.dll"
+          elif [ "${{ matrix.platform }}" == "iOS" ] || [ "${{ matrix.platform }}" == "macOS" ]; then
+            BINARY_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.dylib"
+          else # Linux or Android
+            BINARY_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.so"
+          fi
+          
+          echo "Verifying architecture for: $BINARY_PATH"
+          ACTUAL_ARCH_INFO=$(file "$BINARY_PATH")
+          echo "File command output: $ACTUAL_ARCH_INFO"
+          
+          # Set expected architecture string for verification
+          EXPECTED_ARCH_PATTERN=""
+          case "${{ matrix.arch }}" in
+            x64)
+              EXPECTED_ARCH_PATTERN="x86-64"
+              ;;
+            x86)
+              EXPECTED_ARCH_PATTERN="80386"
+              ;;
+            x86_64)
+              EXPECTED_ARCH_PATTERN="x86-64|x86_64"
+              ;;
+            armv7l)
+              EXPECTED_ARCH_PATTERN="ARM"
+              ;;
+            aarch64)
+              EXPECTED_ARCH_PATTERN="aarch64"
+              ;;
+            arm64)
+              EXPECTED_ARCH_PATTERN="arm64"
+              ;;
+            arm64-v8a)
+              EXPECTED_ARCH_PATTERN="aarch64"
+              ;;
+            *)
+              echo "::error::Unknown architecture in matrix: ${{ matrix.arch }}"
+              exit 1
+              ;;
+          esac
+          
+          echo "Expecting architecture pattern: '$EXPECTED_ARCH_PATTERN'"
+          
+          # Perform the check and fail the job if it doesn't match
+          if ! echo "$ACTUAL_ARCH_INFO" | grep -qE "$EXPECTED_ARCH_PATTERN"; then
+            echo "::error::Architecture verification failed for ${{ matrix.rid }}!"
+            echo "Expected to find pattern '$EXPECTED_ARCH_PATTERN' in file info, but it was not found."
+            exit 1
+          fi
+          
+          echo "Architecture verified successfully for ${{ matrix.rid }}."
+        continue-on-error: true
 
       # Dependency analysis
       - name: Analyze Dependencies (Windows)
