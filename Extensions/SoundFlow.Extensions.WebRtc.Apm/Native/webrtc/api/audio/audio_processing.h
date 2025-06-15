@@ -1088,15 +1088,12 @@ RTC_EXPORT size_t webrtc_apm_get_frame_size(int sample_rate_hz);
 struct webrtc_apm {
     rtc::scoped_refptr<webrtc::AudioProcessing> apm;
 };
-
 struct webrtc_apm_config {
     webrtc::AudioProcessing::Config config;
 };
-
 struct webrtc_stream_config {
     webrtc::StreamConfig config;
 };
-
 struct webrtc_processing_config {
     webrtc::ProcessingConfig config;
 };

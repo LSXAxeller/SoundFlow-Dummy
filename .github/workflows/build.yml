@@ -2,10 +2,141 @@ name: Build Native Library
 
 on:
   push:
-    paths:
-      - 'Native/**'
 
 jobs:
+  build-freebsd-x64:
+    name: Build for FreeBSD - x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Create Build Directories on Host
+        shell: bash
+        run: |
+          mkdir -p ${{ github.workspace }}/Native/build
+          mkdir -p ${{ github.workspace }}/Native/cmake
+
+      - name: Build on FreeBSD x86_64 VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.2"
+          arch: "x86_64"
+          usesh: true
+          prepare: |
+            pkg install -y cmake gcc
+          run: |
+            set -ex # Exit on error and print commands
+            echo "--- Current directory: $(pwd) ---"
+            echo "--- Listing GITHUB_WORKSPACE ---"
+            ls -la $GITHUB_WORKSPACE
+            cd $GITHUB_WORKSPACE/Native
+
+            echo "--- System Information (inside FreeBSD VM) ---"
+            freebsd-version
+            uname -a
+            cc --version || clang --version || gcc --version
+            cmake --version
+
+            echo "--- Configuring CMake for FreeBSD x86_64 ---"
+            CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=amd64"
+            rm -rf build
+            mkdir build
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
+
+            echo "--- Building for FreeBSD x86_64 ---"
+            cmake --build build --config Release
+
+            echo "--- Built library path ---"
+            ls -l build/libminiaudio.so
+
+            echo "--- Analyzing Dependencies for FreeBSD x86_64 ---"
+            ldd build/libminiaudio.so
+
+      - name: Create Output Directory for Artifact
+        shell: bash
+        run: |
+          mkdir -p runtimes/freebsd-x64/native
+
+      - name: Copy Library for Artifact
+        shell: bash
+        run: |
+          cp "${{ github.workspace }}/Native/build/libminiaudio.so" "runtimes/freebsd-x64/native/"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-x64
+          path: runtimes/freebsd-x64
+
+  build-freebsd-arm64:
+    name: Build for FreeBSD - aarch64
+    runs-on: ubuntu-latest
+    needs: build-freebsd-x64
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Create Build Directories on Host
+        shell: bash
+        run: |
+          mkdir -p ${{ github.workspace }}/Native/build
+          mkdir -p ${{ github.workspace }}/Native/cmake
+
+      - name: Build on FreeBSD aarch64 VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.2"
+          arch: "aarch64"
+          usesh: true
+          prepare: |
+            pkg install -y cmake gcc
+          run: |
+            set -ex # Exit on error and print commands
+            echo "--- Current directory: $(pwd) ---"
+            echo "--- Listing GITHUB_WORKSPACE ---"
+            ls -la $GITHUB_WORKSPACE
+            cd $GITHUB_WORKSPACE/Native
+
+            echo "--- System Information (inside FreeBSD VM) ---"
+            freebsd-version
+            uname -a
+            cc --version || clang --version || gcc --version
+            cmake --version
+
+            echo "--- Configuring CMake for FreeBSD aarch64 ---"
+            CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=arm64"
+            rm -rf build
+            mkdir build
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
+
+            echo "--- Building for FreeBSD aarch64 ---"
+            cmake --build build --config Release
+
+            echo "--- Built library path ---"
+            ls -l build/libminiaudio.so
+
+            echo "--- Analyzing Dependencies for FreeBSD aarch64 ---"
+            ldd build/libminiaudio.so
+
+      - name: Create Output Directory for Artifact
+        shell: bash
+        run: |
+          mkdir -p runtimes/freebsd-arm64/native
+
+      - name: Copy Library for Artifact
+        shell: bash
+        run: |
+          cp "${{ github.workspace }}/Native/build/libminiaudio.so" "runtimes/freebsd-arm64/native/"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-arm64
+          path: runtimes/freebsd-arm64
+  
   build:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -38,21 +169,21 @@ jobs:
             toolchain: "Visual Studio 17 2022"
 
           # Linux builds
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-x64
             platform: Linux
             arch: x86_64
             cmake_target_arch: x64
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-arm
             platform: Linux
             arch: armv7l
             cmake_target_arch: arm
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-arm64
             platform: Linux
             arch: aarch64
@@ -83,21 +214,21 @@ jobs:
             lib_extension: ".framework"
 
           # Android builds
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: android-arm
             platform: Android
             arch: armeabi-v7a
             cmake_target_arch: armeabi-v7a
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: android-arm64
             platform: Android
             arch: arm64-v8a
             cmake_target_arch: arm64-v8a
             lib_extension: ".so"
 
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: android-x64
             platform: Android
             arch: x86_64
@@ -127,7 +258,7 @@ jobs:
         uses: GuillaumeFalourd/setup-windows10-sdk-action@v2.4
 
       - name: Install VS Build Tools
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'Windows'
         shell: powershell
         run: |
           # Install Chocolatey
@@ -149,14 +280,25 @@ jobs:
 
       # Linux/Android dependencies
       - name: Install Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
+        if: matrix.platform == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake gcc g++
+          sudo apt-get install -y cmake gcc g++ file binutils
 
       - name: Install Dependencies (Android)
         if: matrix.platform == 'Android'
         uses: android-actions/setup-android@v2
+
+      - name: Install Cross-Compilation tools (Linux)
+        if: matrix.platform == 'Linux' && (matrix.arch == 'armv7l' || matrix.arch == 'aarch64')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
+          if [ "${{ matrix.arch }}" == "armv7l" ]; then
+            sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
+          elif [ "${{ matrix.arch }}" == "aarch64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          fi
 
       - name: Configure CMake (Windows)
         if: matrix.platform == 'Windows'
@@ -168,14 +310,14 @@ jobs:
           TOOLCHAIN: ${{ matrix.toolchain }}
           CMAKE_TARGET_ARCH: ${{ matrix.cmake_target_arch }}
 
-      # Configure CMake for all platforms
       - name: Configure CMake (Unix)
+        if: matrix.platform != 'Windows'
         shell: bash
         working-directory: ${{ github.workspace }}/Native
         run: |
           CMAKE_FLAGS=""
           if [ "${{ matrix.platform }}" == "Android" ]; then
-            CMAKE_FLAGS="-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.arch }} -DANDROID_PLATFORM=android-21"
+            CMAKE_FLAGS="-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.arch }} -DANDROID_PLATFORM=android-21 -DCMAKE_ANDROID_ARCH_ABI=${{ matrix.cmake_target_arch }}"
           elif [ "${{ matrix.platform }}" == "iOS" ]; then
             CMAKE_FLAGS="-G Xcode \
               -DCMAKE_SYSTEM_NAME=iOS \
@@ -187,7 +329,14 @@ jobs:
           elif [ "${{ matrix.platform }}" == "macOS" ]; then
             CMAKE_FLAGS="-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_target_arch }}"
           elif [ "${{ matrix.platform }}" == "Linux" ]; then
-            CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_target_arch }}"
+            # Add specific flags for Linux cross-compilation
+            if [ "${{ matrix.arch }}" == "armv7l" ]; then
+              CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=arm -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++"
+            elif [ "${{ matrix.arch }}" == "aarch64" ]; then
+              CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++"
+            else
+              CMAKE_FLAGS="-DCMAKE_SYSTEM_PROCESSOR=x86_64"
+            fi
           fi
           cmake -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
 
@@ -238,44 +387,70 @@ jobs:
           fi
 
       # Dependency analysis
-      - name: Analyze Dependencies (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Analyze Dependencies and Exports (Windows)
+        if: matrix.platform == 'Windows'
         shell: powershell
         run: |
-          Write-Host "Dependencies for Windows:"
-          & "$env:DUMPBIN_PATH\dumpbin.exe" /DEPENDENTS "runtimes/${{ matrix.rid }}/native/miniaudio.dll"
+          $libPath = "runtimes/${{ matrix.rid }}/native/miniaudio.dll"
+          Write-Host "--- Dependencies for $libPath ---"
+          & "$env:DUMPBIN_PATH\dumpbin.exe" /DEPENDENTS "$libPath"
+          Write-Host "--- Exports for $libPath ---"
+          & "$env:DUMPBIN_PATH\dumpbin.exe" /EXPORTS "$libPath"
 
-      - name: Analyze Dependencies (iOS)
+      - name: Analyze Dependencies and Exports (iOS)
         if: matrix.platform == 'iOS'
         shell: bash
         run: |
-          FRAMEWORK_BINARY="runtimes/${{ matrix.rid }}/native/miniaudio.framework/miniaudio"
-          echo "Dependencies for iOS:"
-          otool -L "$FRAMEWORK_BINARY"
+          LIB_PATH="runtimes/${{ matrix.rid }}/native/miniaudio.framework/miniaudio"
+          echo "--- Dependencies for iOS ---"
+          otool -L "$LIB_PATH"
+          echo "--- Symbols ---"
+          nm -g "$LIB_PATH" | grep " T "
 
-      - name: Analyze Dependencies (Android)
+      - name: Analyze Dependencies and Exports (Android)
         if: matrix.platform == 'Android'
         shell: bash
         run: |
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio.so"
-          echo "Dependencies for Android:"
+          echo "--- Dependencies for Android ---"
           readelf -d "$LIB_PATH"
+          echo "--- Symbols ---"
+          nm -g "$LIB_PATH" | grep " T "
 
-      - name: Analyze Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
+      - name: Analyze Dependencies and Exports (Linux)
+        if: matrix.platform == 'Linux'
         shell: bash
         run: |
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio.so"
-          echo "Dependencies for Linux:"
-          ldd "$LIB_PATH"
+          echo "=== Library Information ==="
+          file "$LIB_PATH"
 
-      - name: Analyze Dependencies (macOS)
-        if: matrix.os == 'macos-latest' && matrix.platform == 'macOS'
+          echo -e "\n=== Dependencies ==="
+          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
+            ldd "$LIB_PATH" || true
+          else
+            readelf -d "$LIB_PATH" | grep "NEEDED" || true
+          fi
+
+          echo -e "\n=== Symbols ==="
+          if [[ "${{ matrix.arch }}" == "x86_64" || "${{ matrix.arch }}" == "aarch64" ]]; then
+            nm -g "$LIB_PATH" | grep " T " || true
+          else
+            arm-linux-gnueabihf-nm -g "$LIB_PATH" | grep " T " || true
+          fi
+
+          echo -e "\n=== SONAME ==="
+          readelf -d "$LIB_PATH" | grep "SONAME" || true
+
+      - name: Analyze Dependencies and Exports (macOS)
+        if: matrix.platform == 'macOS'
         shell: bash
         run: |
           LIB_PATH="runtimes/${{ matrix.rid }}/native/libminiaudio.dylib"
-          echo "Dependencies for macOS:"
+          echo "--- Dependencies for macOS ---"
           otool -L "$LIB_PATH"
+          echo "--- Symbols ---"
+          nm -g "$LIB_PATH" | grep " T "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -284,8 +459,8 @@ jobs:
           path: runtimes/${{ matrix.rid }}
 
   package:
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [build-freebsd-x64, build-freebsd-arm64, build]
+    runs-on: ubuntu-22.04
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4

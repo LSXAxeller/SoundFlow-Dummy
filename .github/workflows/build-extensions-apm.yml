@@ -2,8 +2,6 @@ name: Build WebRTC Audio Processing
 
 on:
   push:
-    paths:
-      - 'Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/**'
 
 jobs:
   build:
@@ -50,7 +48,7 @@ jobs:
             cross_file: "linux-arm64.crossfile"
 
           # macOS builds
-          - os: macos-latest
+          - os: macos-13
             rid: osx-x64
             platform: macOS
             arch: x86_64
@@ -282,7 +280,7 @@ jobs:
           nm -g "$LIB_PATH" | grep " T "
 
       - name: Analyze Dependencies (macOS)
-        if: matrix.os == 'macos-latest' && matrix.platform == 'macOS'
+        if: matrix.platform == 'macOS'
         shell: bash
         run: |
           cd Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/
