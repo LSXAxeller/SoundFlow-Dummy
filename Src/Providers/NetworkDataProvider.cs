@@ -1,11 +1,10 @@
-﻿using System.Buffers;
-using System.Net;
+using System.Buffers;
 using System.Net.Http.Headers;
 using System.Text;
 using SoundFlow.Abstracts;
 using SoundFlow.Enums;
 using SoundFlow.Interfaces;
-using SoundFlow.Utils;
+using SoundFlow.Structs;
 
 namespace SoundFlow.Providers;
 
@@ -19,11 +18,12 @@ public sealed class NetworkDataProvider : ISoundDataProvider
     private readonly HttpClient _httpClient;
     private Stream? _stream;
     private long? _contentLength;
+    private readonly AudioEngine _engine;
+    private readonly AudioFormat _format;
 
     private readonly Queue<float> _audioBuffer = new();
     private int _samplePosition;
     private bool _isEndOfStream;
-    private bool _isDisposed;
     private readonly object _lock = new();
 
     // For HLS
@@ -39,12 +39,15 @@ public sealed class NetworkDataProvider : ISoundDataProvider
     /// <summary>
     ///     Initializes a new instance of the <see cref="NetworkDataProvider" /> class.
     /// </summary>
+    /// <param name="engine">The audio engine instance.</param>
+    /// <param name="format">The audio format containing channels and sample rate and sample format</param>
     /// <param name="url">The URL of the audio stream.</param>
-    /// <param name="sampleRate">The sample rate of the audio data.</param>
-    public NetworkDataProvider(string url, int? sampleRate = null)
+    public NetworkDataProvider(AudioEngine engine, AudioFormat format, string url)
     {
+        _engine = engine;
+        _format = format;
         _url = url ?? throw new ArgumentNullException(nameof(url));
-        SampleRate = sampleRate;
+        SampleRate = format.SampleRate;
         _httpClient = new HttpClient();
         Initialize();
     }
@@ -71,7 +74,10 @@ public sealed class NetworkDataProvider : ISoundDataProvider
     public SampleFormat SampleFormat { get; private set; }
 
     /// <inheritdoc />
-    public int? SampleRate { get; set; }
+    public int SampleRate { get; }
+
+    /// <inheritdoc />
+    public bool IsDisposed { get; private set; }
 
     /// <inheritdoc />
     public event EventHandler<EventArgs>? EndOfStreamReached;
@@ -82,13 +88,15 @@ public sealed class NetworkDataProvider : ISoundDataProvider
     /// <inheritdoc />
     public int ReadBytes(Span<float> buffer)
     {
-        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        if (IsDisposed) return 0;
 
         var samplesRead = 0;
+        var attempts = 0;
+        const int maxAttempts = 50; // ~5 seconds at 100ms intervals
 
         lock (_lock)
         {
-            while (samplesRead < buffer.Length)
+            while (samplesRead < buffer.Length && attempts < maxAttempts)
             {
                 if (_audioBuffer.Count == 0)
                 {
@@ -96,10 +104,10 @@ public sealed class NetworkDataProvider : ISoundDataProvider
                     {
                         if (samplesRead == 0)
                             EndOfStreamReached?.Invoke(this, EventArgs.Empty);
-
                         break;
                     }
 
+                    attempts++;
                     Monitor.Wait(_lock, TimeSpan.FromMilliseconds(100));
                     continue;
                 }
@@ -116,7 +124,7 @@ public sealed class NetworkDataProvider : ISoundDataProvider
     /// <inheritdoc />
     public void Seek(int sampleOffset)
     {
-        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
 
         if (!CanSeek)
             throw new NotSupportedException("Seeking is not supported for this stream.");
@@ -243,7 +251,7 @@ public sealed class NetworkDataProvider : ISoundDataProvider
 
                         tempStream.Position = 0;
 
-                        using var tempDecoder = AudioEngine.Instance.CreateDecoder(tempStream);
+                        using var tempDecoder = _engine.CreateDecoder(tempStream, _format);
                         Length = tempDecoder.Length;
                     }
                     catch
@@ -262,7 +270,7 @@ public sealed class NetworkDataProvider : ISoundDataProvider
                 await networkStream.CopyToAsync(_stream);
                 _stream.Position = 0;
 
-                _decoder = AudioEngine.Instance.CreateDecoder(_stream);
+                _decoder = _engine.CreateDecoder(_stream, _format);
                 SampleFormat = _decoder.SampleFormat;
 
                 _cancellationTokenSource = new CancellationTokenSource();
@@ -294,7 +302,7 @@ public sealed class NetworkDataProvider : ISoundDataProvider
                 }
 
                 SampleFormat = SampleFormat.F32;
-                Length = _isEndList ? (int)(_hlsTotalDuration * (SampleRate ?? 44100)) : -1;
+                Length = _isEndList ? (int)(_hlsTotalDuration * SampleRate) : -1; // -1 for unknown or infinite stream
                 CanSeek = _isEndList;
                 await BufferHlsStreamAsync(_cancellationTokenSource.Token);
             }
@@ -317,7 +325,7 @@ public sealed class NetworkDataProvider : ISoundDataProvider
 
             try
             {
-                while (!_isDisposed && !cancellationToken.IsCancellationRequested)
+                while (!IsDisposed && !cancellationToken.IsCancellationRequested)
                 {
                     var samplesRead = _decoder!.Decode(buffer);
 
@@ -424,7 +432,7 @@ public sealed class NetworkDataProvider : ISoundDataProvider
     {
         try
         {
-            while (!_isDisposed && !cancellationToken.IsCancellationRequested)
+            while (!IsDisposed && !cancellationToken.IsCancellationRequested)
             {
                 if (!_isEndList && ShouldRefreshPlaylist())
                 {
@@ -493,16 +501,15 @@ public sealed class NetworkDataProvider : ISoundDataProvider
 
             if (_decoder == null)
             {
-                _decoder = AudioEngine.Instance.CreateDecoder(segmentStream);
+                _decoder = _engine.CreateDecoder(segmentStream, _format);
                 SampleFormat = _decoder.SampleFormat;
-                SampleRate ??= AudioEngine.Instance.SampleRate;
             }
 
             var buffer = ArrayPool<float>.Shared.Rent(8192);
 
             try
             {
-                while (!_isDisposed && !cancellationToken.IsCancellationRequested)
+                while (!IsDisposed && !cancellationToken.IsCancellationRequested)
                 {
                     var samplesRead = _decoder.Decode(buffer);
 
@@ -606,7 +613,7 @@ public sealed class NetworkDataProvider : ISoundDataProvider
 
     private void SeekInHlsStream(int sampleOffset)
     {
-        var targetTime = sampleOffset / (double)(SampleRate ?? 44100);
+        var targetTime = sampleOffset / (double)SampleRate;
 
         double cumulativeTime = 0;
         var index = 0;
@@ -648,12 +655,12 @@ public sealed class NetworkDataProvider : ISoundDataProvider
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_isDisposed)
+        if (IsDisposed)
             return;
 
         lock (_lock)
         {
-            _isDisposed = true;
+            IsDisposed = true;
             _httpClient.Dispose();
             DisposeResources();
             _audioBuffer.Clear();

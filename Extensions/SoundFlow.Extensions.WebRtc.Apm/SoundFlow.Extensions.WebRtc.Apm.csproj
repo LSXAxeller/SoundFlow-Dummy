@@ -4,6 +4,7 @@
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <Title>SoundFlow WebRTC APM Extension</Title>
         <Description>WebRTC Audio Processing Module (APM) extension for SoundFlow, providing advanced audio processing capabilities like noise suppression, echo cancellation, and gain control.</Description>
         <PackageTags>audio, webrtc, apm, noise-suppression, echo-cancellation, sound-processing</PackageTags>
@@ -14,7 +15,7 @@
         <RepositoryType>Github</RepositoryType>
         <PackageIcon>logo.png</PackageIcon>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <Version>1.0.0</Version>
+        <Version>1.0.4</Version>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
     </PropertyGroup>
 
@@ -36,5 +37,9 @@
         <None Include="README.md" Pack="true" PackagePath="" />
         <None Include="..\..\LICENSE.md" Pack="true" PackagePath="" />
         <None Include="..\..\logo.png" Pack="true" PackagePath="" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Native\" />
     </ItemGroup>
 </Project>

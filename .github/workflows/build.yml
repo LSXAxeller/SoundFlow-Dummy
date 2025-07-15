@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'Native/**'
+
 jobs:
   build-freebsd-x64:
     name: Build for FreeBSD - x86_64

@@ -1,17 +1,16 @@
-﻿using SoundFlow.Abstracts;
 using SoundFlow.Enums;
 using SoundFlow.Interfaces;
 using System.Collections.Concurrent;
+using SoundFlow.Abstracts.Devices;
 
 namespace SoundFlow.Providers;
 
 /// <summary>
-///     Provides audio data from the microphone.
+/// Provides audio data from a microphone by subscribing to a specific capture device.
 /// </summary>
-/// <remarks>Live audio input from the microphone is captured and processed into audio data for direct playback.</remarks>
 public class MicrophoneDataProvider : ISoundDataProvider
 {
-    private readonly AudioEngine _audioEngine;
+    private readonly AudioDevice _captureDevice;
     private readonly ConcurrentQueue<float[]> _bufferQueue = new();
     private readonly int _bufferSize;
     private bool _isCapturing;
@@ -19,19 +18,25 @@ public class MicrophoneDataProvider : ISoundDataProvider
     private int _currentBufferIndex;
 
     /// <summary>
-    ///     Initializes a new instance of the <see cref="MicrophoneDataProvider" /> class.
+    /// Initializes a new instance of the <see cref="MicrophoneDataProvider"/> class.
     /// </summary>
-    /// <param name="bufferSize">The size of the audio buffer in samples.</param>
-    /// <param name="sampleRate">The sample rate of the audio data.</param>
-    public MicrophoneDataProvider(int bufferSize = 8, int? sampleRate = null)
+    /// <param name="captureDevice">The capture device to source audio from.</param>
+    /// <param name="bufferSize">The size of internal audio buffers in samples.</param>
+    public MicrophoneDataProvider(AudioDevice captureDevice, int bufferSize = 8)
     {
-        _audioEngine = AudioEngine.Instance;
-        if (_audioEngine.Capability != Capability.Record && _audioEngine.Capability != Capability.Mixed)
-            throw new InvalidOperationException(
-                "AudioEngine must be initialized with Capability.Record or Capability.Mixed to use MicrophoneDataProvider.");
+        _captureDevice = captureDevice;
         _bufferSize = bufferSize;
-        SampleRate = sampleRate ?? _audioEngine.SampleRate;
-        AudioEngine.OnAudioProcessed += EnqueueAudioData;
+        SampleRate = captureDevice.Format.SampleRate;
+        
+        switch (captureDevice)
+        {
+            case AudioCaptureDevice audioCaptureDevice:
+                audioCaptureDevice.OnAudioProcessed += OnAudioDataReceived;
+                break;
+            case FullDuplexDevice fullDuplexDevice:
+                fullDuplexDevice.OnAudioProcessed += OnAudioDataReceived;
+                break;
+        }
     }
 
     /// <inheritdoc />
@@ -44,10 +49,13 @@ public class MicrophoneDataProvider : ISoundDataProvider
     public bool CanSeek => false;
 
     /// <inheritdoc />
-    public SampleFormat SampleFormat => _audioEngine.SampleFormat;
+    public SampleFormat SampleFormat => _captureDevice.Format.Format;
 
     /// <inheritdoc />
-    public int? SampleRate { get; set; }
+    public int SampleRate { get; }
+
+    /// <inheritdoc />
+    public bool IsDisposed { get; private set; }
 
     /// <inheritdoc />
     public event EventHandler<EventArgs>? EndOfStreamReached;
@@ -60,6 +68,7 @@ public class MicrophoneDataProvider : ISoundDataProvider
     /// </summary>
     public void StartCapture()
     {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
         if (_isCapturing)
             return;
 
@@ -71,7 +80,10 @@ public class MicrophoneDataProvider : ISoundDataProvider
     /// </summary>
     public void StopCapture()
     {
+        if (!_isCapturing) return;
+
         _isCapturing = false;
+        
         if (_currentBuffer != null && _currentBufferIndex > 0)
         {
             // Create a new array with the actual data length
@@ -85,9 +97,9 @@ public class MicrophoneDataProvider : ISoundDataProvider
         EndOfStreamReached?.Invoke(this, EventArgs.Empty);
     }
 
-    private void EnqueueAudioData(Span<float> samples, Capability capability)
+    private void OnAudioDataReceived(Span<float> samples, Capability capability)
     {
-        if (!_isCapturing || capability != Capability.Record)
+        if (!_isCapturing || capability != Capability.Record || IsDisposed)
             return;
 
         var samplesRemaining = samples.Length;
@@ -123,6 +135,7 @@ public class MicrophoneDataProvider : ISoundDataProvider
     /// <inheritdoc />
     public int ReadBytes(Span<float> buffer)
     {
+        if (IsDisposed) return 0;
         var bytesCopied = 0;
 
         while (bytesCopied < buffer.Length && _bufferQueue.TryDequeue(out var audioData))
@@ -161,8 +174,18 @@ public class MicrophoneDataProvider : ISoundDataProvider
     /// <inheritdoc />
     public void Dispose()
     {
+        if (IsDisposed) return;
         StopCapture();
-        AudioEngine.OnAudioProcessed -= EnqueueAudioData;
         _bufferQueue.Clear();
+        switch (_captureDevice)
+        {
+            case AudioCaptureDevice audioCaptureDevice:
+                audioCaptureDevice.OnAudioProcessed -= OnAudioDataReceived;
+                break;
+            case FullDuplexDevice fullDuplexDevice:
+                fullDuplexDevice.OnAudioProcessed -= OnAudioDataReceived;
+                break;
+        }
+        IsDisposed = true;
     }
 }

@@ -1,206 +1,138 @@
-﻿using System.Numerics;
-using SoundFlow.Abstracts;
+﻿using SoundFlow.Abstracts;
+using SoundFlow.Abstracts.Devices;
 using SoundFlow.Backends.MiniAudio;
+using SoundFlow.Backends.MiniAudio.Devices;
+using SoundFlow.Backends.MiniAudio.Enums;
 using SoundFlow.Components;
 using SoundFlow.Enums;
-using SoundFlow.Experimental;
-using SoundFlow.Extensions.WebRtc.Apm;
-using SoundFlow.Extensions.WebRtc.Apm.Modifiers;
 using SoundFlow.Interfaces;
 using SoundFlow.Modifiers;
 using SoundFlow.Providers;
-using SoundFlow.Visualization;
-using VoiceActivityDetector = SoundFlow.Components.VoiceActivityDetector;
+using SoundFlow.Structs;
 
 namespace SoundFlow.Samples.SimplePlayer;
 
 /// <summary>
-/// Example program to play audio, record, and apply effects using SoundFlow.
+/// Example program to play audio, record, and apply effects using the refactored SoundFlow library.
 /// </summary>
 internal static class Program
 {
-    private static AudioEngine? _audioEngine;
     private static readonly string RecordedFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recorded.wav");
+    private static readonly AudioEngine Engine = new MiniAudioEngine();
+    private static readonly AudioFormat Format = AudioFormat.DvdHq;
     
+    // Represents detailed configuration for a MiniAudio device, allowing fine-grained control over general and backend-specific settings, Not essential though.
+    private static readonly DeviceConfig DeviceConfig =  new MiniAudioDeviceConfig
+    {
+        PeriodSizeInFrames = 960, // 10ms at 48kHz = 480 frames @ 2 channels = 960 frames
+        Playback = new DeviceSubConfig
+        {
+            ShareMode = ShareMode.Shared // Use shared mode for better compatibility with other applications
+        },
+        Capture = new DeviceSubConfig
+        {
+            ShareMode = ShareMode.Shared // Use shared mode for better compatibility with other applications
+        },
+        Wasapi = new WasapiSettings
+        {
+            Usage = WasapiUsage.ProAudio // Use ProAudio mode for lower latency on Windows
+        }
+    };
+
     private static void Main()
     {
-        SetOrCreateEngine();
+        try
+        {
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("\nSoundFlow Example Menu:");
+                Console.WriteLine("1. Play Audio From File");
+                Console.WriteLine("2. Record and Playback Audio");
+                Console.WriteLine("3. Live Microphone Passthrough");
+                Console.WriteLine("4. Component and Modifier Tests");
+                Console.WriteLine("Press any other key to exit.");
+
+                var choice = Console.ReadKey(true).KeyChar;
+                Console.WriteLine();
+
+                switch (choice)
+                {
+                    case '1':
+                        PlayAudioFromFile();
+                        break;
+                    case '2':
+                        RecordAndPlaybackAudio();
+                        break;
+                    case '3':
+                        LiveMicrophonePassthrough();
+                        break;
+                    case '4':
+                        ComponentTests.Run();
+                        break;
+                    default:
+                        Console.WriteLine("Exiting.");
+                        return;
+                }
+
+                Console.WriteLine("\nOperation complete. Press any key to return to the menu.");
+                Console.ReadKey();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"\nAn unexpected error occurred: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
+            Console.ResetColor();
+        }
+        finally
+        {
+            // Dispose the single engine instance on application exit.
+            Engine.Dispose();
+        }
+    }
+
+    #region Device Selection Helpers
+
+    /// <summary>
+    /// Prompts the user to select a single device from a list.
+    /// </summary>
+    private static DeviceInfo? SelectDevice(DeviceType type)
+    {
+        Engine.UpdateDevicesInfo();
+        var devices = type == DeviceType.Playback ? Engine.PlaybackDevices : Engine.CaptureDevices;
+
+        if (devices.Length == 0)
+        {
+            Console.WriteLine($"No {type.ToString().ToLower()} devices found.");
+            return null;
+        }
+
+        Console.WriteLine($"\nPlease select a {type.ToString().ToLower()} device:");
+        for (var i = 0; i < devices.Length; i++)
+        {
+            Console.WriteLine($"  {i}: {devices[i].Name} {(devices[i].IsDefault ? "(Default)" : "")}");
+        }
 
         while (true)
         {
-            Console.WriteLine("\nChoose an option:");
-            Console.WriteLine("1. Play audio from file");
-            Console.WriteLine("2. Play audio from web stream");
-            Console.WriteLine("3. Record and playback audio");
-            Console.WriteLine("4. Play audio from microphone");
-            Console.WriteLine("5. Play audio with visualization");
-            Console.WriteLine("6. Play audio with noise reduction");
-            Console.WriteLine("7. Play audio with equalizer");
-            Console.WriteLine("8. Run component and modifier tests");
-            Console.WriteLine("9. Run data provider tests");
-            Console.WriteLine("Press any other key to exit.");
-
-            var choice = Console.ReadKey().KeyChar;
-            Console.WriteLine();
-
-            switch (choice)
+            Console.Write("Enter device index: ");
+            if (int.TryParse(Console.ReadLine(), out var index) && index >= 0 && index < devices.Length)
             {
-                case '1':
-                    PlayAudioFromFile();
-                    break;
-                case '2':
-                    PlayAudioFromWeb();
-                    break;
-                case '3':
-                    RecordAndPlaybackAudio();
-                    break;
-                case '4':
-                    MixedRecordAndPlayback();
-                    break;
-                case '5':
-                    PlayAudioVisualizer();
-                    break;
-                case '6':
-                    PlayAudioWithNoiseReduction();
-                    break;
-                case '7':
-                    PlayAudioWithEqualizer();
-                    break;
-                case '8':
-                    ComponentTests.Run();
-                    break;
-                case '9':
-                    DataProviderTests.Run();
-                    break;
-                default:
-                    Console.WriteLine("Exiting.");
-                    return;
+                return devices[index];
             }
-
-            Console.WriteLine("\nPress any key to continue or 'X' to exit.");
-            if (Console.ReadKey().Key == ConsoleKey.X)
-                break;
-        }
-
-        // Dispose audio engine on exit
-        _audioEngine?.Dispose();
-    }
-
-    private static void SetOrCreateEngine(Capability capability = Capability.Playback, int sampleRate = 48000,
-        SampleFormat sampleFormat = SampleFormat.F32, int channels = 2)
-    {
-        if (_audioEngine == null || _audioEngine.IsDisposed)
-        {
-            _audioEngine = new MiniAudioEngine(sampleRate, capability, sampleFormat, channels);
-        }
-        else if ((_audioEngine.Capability & capability) != capability || _audioEngine.SampleRate != sampleRate ||
-                 _audioEngine.SampleFormat != sampleFormat || AudioEngine.Channels != channels)
-        {
-            _audioEngine.Dispose();
-            _audioEngine = new MiniAudioEngine(sampleRate, capability, sampleFormat, channels);
+            Console.WriteLine("Invalid index. Please try again.");
         }
     }
 
-    private static void PlayAudio(ISoundDataProvider dataProvider, bool isSurround = false,
-        Action<ISoundPlayer>? configurePlayer = null, List<SoundModifier>? modifiers = null)
-    {
-        SetOrCreateEngine();
-        SoundPlayerBase soundPlayer = isSurround ? new SurroundPlayer(dataProvider) : new SoundPlayer(dataProvider);
+    #endregion
 
-        if (modifiers != null)
-        {
-            foreach (var modifier in modifiers)
-            {
-                soundPlayer.AddModifier(modifier);
-            }
-        }
-
-        Mixer.Master.AddComponent(soundPlayer);
-        configurePlayer?.Invoke(soundPlayer);
-
-        soundPlayer.Play();
-
-        PlaybackControls(soundPlayer);
-
-        Mixer.Master.RemoveComponent(soundPlayer);
-    }
-
-    private static void PlaybackControls(ISoundPlayer player)
-    {
-        var timer = new System.Timers.Timer(500) { AutoReset = true };
-        timer.Elapsed += (_, _) =>
-        {
-            if (player.State != PlaybackState.Stopped)
-            {
-                Console.SetCursorPosition(0, Console.CursorTop);
-                Console.Write(
-                    $"Time: {(int)player.Time / 60}:{player.Time % 60:00} / Duration: {(int)player.Duration / 60}:{player.Duration % 60:00}        ");
-            }
-            else
-            {
-                timer.Stop();
-            }
-        };
-        timer.Start();
-
-        Console.WriteLine(
-            "\nPress 's' to seek, 'p' to pause/play, any other key to exit playback. '+' to increase speed, '-' to decrease speed, 'R' to reset speed to 1.0");
-
-
-        while (player.State is PlaybackState.Playing or PlaybackState.Paused)
-        {
-            var keyInfo = Console.ReadKey(true);
-            switch (keyInfo.Key)
-            {
-                case ConsoleKey.P:
-                    if (player.State == PlaybackState.Playing)
-                        player.Pause();
-                    else
-                        player.Play();
-                    break;
-                case ConsoleKey.S:
-                    Console.WriteLine("Enter seek time in seconds (e.g., 5.0):");
-                    if (float.TryParse(Console.ReadLine(), out var seekTime))
-                        player.Seek(TimeSpan.FromSeconds(seekTime));
-                    else
-                        Console.WriteLine("Invalid seek time.");
-                    break;
-                case ConsoleKey.OemPlus:
-                case ConsoleKey.Add:
-                    if (player.PlaybackSpeed < 2.0f)
-                    {
-                        player.PlaybackSpeed += 0.1f;
-                        Console.WriteLine($"Speed increased to: {player.PlaybackSpeed:F2}");
-                    }
-
-                    break;
-                case ConsoleKey.OemMinus:
-                case ConsoleKey.Subtract:
-                    if (player.PlaybackSpeed > 0.2f)
-                    {
-                        player.PlaybackSpeed -= 0.1f;
-                        Console.WriteLine($"Speed decreased to: {player.PlaybackSpeed:F2}");
-                    }
-
-                    break;
-                case ConsoleKey.R:
-                    player.PlaybackSpeed = 1.0f;
-                    Console.WriteLine($"Speed reset to: {player.PlaybackSpeed:F2}");
-                    break;
-                default:
-                    player.Stop();
-                    break;
-            }
-        }
-
-        timer.Stop();
-        timer.Dispose();
-        Console.WriteLine("Playback stopped.");
-    }
+    #region Menu Options
 
     private static void PlayAudioFromFile()
     {
-        Console.Write("Enter file path: ");
+        Console.Write("Enter audio file path: ");
         var filePath = Console.ReadLine()?.Replace("\"", "") ?? string.Empty;
 
         if (!File.Exists(filePath))
@@ -209,340 +141,178 @@ internal static class Program
             return;
         }
 
-        Console.Write("Would you like to use surround sound? (y/n): ");
-        var isSurround = Console.ReadKey().Key == ConsoleKey.Y;
-        Console.WriteLine();
-
-        PlayAudio(new StreamDataProvider(new FileStream(filePath, FileMode.Open, FileAccess.Read)), isSurround,
-            player =>
-            {
-                if (isSurround && player is SurroundPlayer surroundPlayer)
-                {
-                    surroundPlayer.Panning = SurroundPlayer.PanningMethod.Vbap;
-                    surroundPlayer.ListenerPosition = new Vector2(0.9f, 0.5f);
-                    surroundPlayer.SpeakerConfig = SurroundPlayer.SpeakerConfiguration.Surround71;
-                }
-            }, []);
-    }
-
-    private static void PlayAudioFromWeb()
-    {
-        Console.Write("Enter web stream URL: ");
-        var url = Console.ReadLine() ?? string.Empty;
-
-        try
-        {
-            var networkDataProvider = new NetworkDataProvider(url);
-            PlayAudio(networkDataProvider);
-        }
-        catch (HttpRequestException e)
-        {
-            Console.WriteLine($"Error accessing web stream: {e.Message}");
-        }
-        catch (InvalidOperationException e)
-        {
-            Console.WriteLine($"Error initializing network stream: {e.Message}");
-        }
-    }
-
-    private static void MixedRecordAndPlayback()
-    {
-        SetOrCreateEngine(Capability.Mixed);
+        var deviceInfo = SelectDevice(DeviceType.Playback);
+        if (!deviceInfo.HasValue) return;
         
-        // Create MicrophoneDataProvider and SoundPlayer
-        var microphoneDataProvider = new MicrophoneDataProvider();
-        var soundPlayer = new SoundPlayer(microphoneDataProvider);
+        using var playbackDevice = Engine.InitializePlaybackDevice(deviceInfo.Value, Format, DeviceConfig);
+        playbackDevice.Start();
+
+        using var dataProvider = new StreamDataProvider(Engine, Format, new FileStream(filePath, FileMode.Open, FileAccess.Read));
+        using var soundPlayer = new SoundPlayer(Engine, Format, dataProvider);
         
-        // Add noise suppression and AEC modifiers
-        var apmModifier = new WebRtcApmModifier();
-        soundPlayer.AddModifier(apmModifier);
-
-        // Add sound player to the master mixer
-        Mixer.Master.AddComponent(soundPlayer);
-        
-        // Start capturing audio from the microphone and play it
-        microphoneDataProvider.StartCapture();
-        soundPlayer.Play();
-        
-        Console.WriteLine("Capturing and playing audio from the microphone. Press any key to stop.");
-        Console.WriteLine("Press 'A' to toggle AEC, 'S' to toggle noise suppression, 'D' to toggle noise suppression level, 'F' to toggle auto gain control v1, 'G' to toggle auto gain control v2.");
-
-        var numberOfLevels = Enum.GetValues(typeof(NoiseSuppressionLevel)).Length;
-        while (true)
-        {
-            if (Console.ReadKey(true).Key == ConsoleKey.A) // Handle AEC
-            {
-                apmModifier.EchoCancellation.Enabled = !apmModifier.EchoCancellation.Enabled;
-                Console.WriteLine($"AEC enabled: {apmModifier.EchoCancellation.Enabled}");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.S) // Handle noise suppression
-            {
-                apmModifier.NoiseSuppression.Enabled = !apmModifier.NoiseSuppression.Enabled;
-                Console.WriteLine($"Noise suppression enabled: {apmModifier.NoiseSuppression.Enabled}");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.D) // Handle noise suppression level
-            {
-                var currentIntValue = (int)apmModifier.NoiseSuppression.Level;
-
-                // Calculate the index of the next value, wrapping around using modulo (%)
-                var nextIntValue = (currentIntValue + 1) % numberOfLevels;
-
-                // Convert the next index back to the enum type
-                var nextLevel = (NoiseSuppressionLevel)nextIntValue;
-
-                // Update the level
-                apmModifier.NoiseSuppression.Level = nextLevel;
-                
-                Console.WriteLine($"Noise suppression level: {apmModifier.NoiseSuppression.Level}");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.F) // Handle Automatic Gain Control
-            {
-                apmModifier.AutomaticGainControl.Agc1Enabled = !apmModifier.AutomaticGainControl.Agc1Enabled;
-                Console.WriteLine($"Automatic Gain Control V1 enabled: {apmModifier.AutomaticGainControl.Agc1Enabled}");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.G) // Handle Automatic Gain Control
-            {
-                apmModifier.AutomaticGainControl.Agc2Enabled = !apmModifier.AutomaticGainControl.Agc2Enabled;
-                Console.WriteLine($"Automatic Gain Control V2 enabled: {apmModifier.AutomaticGainControl.Agc2Enabled}");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.H)
-            {
-                apmModifier.PostProcessGain += 1f;
-                Console.WriteLine($"Gain: {apmModifier.PostProcessGain}");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.J)
-            {
-                apmModifier.PostProcessGain -= 1f;
-                Console.WriteLine($"Gain: {apmModifier.PostProcessGain}");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.N) // Handle Device Selection
-            {
-                Console.WriteLine("\nSelect device:");
-                for (var i = 0; i < AudioEngine.Instance.PlaybackDeviceCount; i++)
-                {
-                    Console.WriteLine($"{i}: {AudioEngine.Instance.PlaybackDevices[i].Name}");
-                }
-
-                Console.WriteLine("Press any key to exit.");
-                var choice = Console.ReadKey().KeyChar;
-                if (int.TryParse(choice.ToString(), out var index) && index >= 0 && index < AudioEngine.Instance.PlaybackDeviceCount)
-                    AudioEngine.Instance.SwitchDevice(AudioEngine.Instance.PlaybackDevices[index]);
-                Console.WriteLine($"\nCurrent device: {AudioEngine.Instance.PlaybackDevices[index].Name}");
-                Console.WriteLine("Press any key to exit or press 'g' to change device.");
-            }
-            else if (Console.ReadKey(true).Key == ConsoleKey.Escape)
-                break;
-        }
-        
-        // Stop capturing and playing
-        microphoneDataProvider.StopCapture();
-        soundPlayer.Stop();
-        Mixer.Master.RemoveComponent(soundPlayer);
-        microphoneDataProvider.Dispose();
-    }
-    
-    public class GainModifier : SoundModifier
-    {
-        public float Gain { get; set; } = 1.0f;
-        
-        /// <inheritdoc />
-        public override float ProcessSample(float sample, int channel)
-        {
-            return sample * Gain;
-        }
-    }
-
-    private static void RecordAndPlaybackAudio()
-    {
-        SetOrCreateEngine(Capability.Record, 48000);
-
-        var vad = new VoiceActivityDetector(1024, 3f);
-
-        vad.SpeechDetected += isDetected => Console.WriteLine("Speech detected: " + isDetected);
-
-        using var recorder = new Recorder(RecordedFilePath, SampleFormat.F32, EncodingFormat.Wav, 48000);
-        recorder.AddAnalyzer(vad);
-
-        Console.WriteLine("Recording started. Press 's' to stop, 'p' to pause/resume.");
-        recorder.StartRecording();
-
-        while (recorder.State != PlaybackState.Stopped)
-        {
-            var key = Console.ReadKey(true).Key;
-            switch (key)
-            {
-                case ConsoleKey.S:
-                    recorder.StopRecording();
-                    break;
-                case ConsoleKey.P:
-                    if (recorder.State == PlaybackState.Paused)
-                    {
-                        recorder.ResumeRecording();
-                        Console.WriteLine("Recording resumed.");
-                    }
-                    else
-                    {
-                        recorder.PauseRecording();
-                        Console.WriteLine("Recording paused.");
-                    }
-
-                    break;
-            }
-        }
-
-        Console.WriteLine("Recording finished. Press 'p' to playback or any other key to exit.");
-        if (Console.ReadKey(true).Key != ConsoleKey.P)
-            return;
-
-        if (!File.Exists(RecordedFilePath))
-        {
-            Console.WriteLine("Recorded file not found.");
-            return;
-        }
-
-        PlayAudio(new StreamDataProvider(new FileStream(RecordedFilePath, FileMode.Open, FileAccess.Read)));
-    }
-
-    private static void PlayAudioVisualizer()
-    {
-        Console.Write("Enter file path for visualization: ");
-        var filePath = Console.ReadLine() ?? string.Empty;
-
-        if (!File.Exists(filePath))
-        {
-            Console.WriteLine("File not found.");
-            return;
-        }
-
-        SetOrCreateEngine();
-        var dataProvider = new StreamDataProvider(new FileStream(filePath, FileMode.Open, FileAccess.Read));
-        var soundPlayer = new SoundPlayer(dataProvider);
-        var waveformVisualizer = new WaveformVisualizer();
-
-        waveformVisualizer.VisualizationUpdated += (_, _) =>
-            SaveWaveformAsText("waveform.txt", 80, 20, waveformVisualizer.Waveform);
-
-        AudioEngine.OnAudioProcessed += ProcessOnAudioData;
-
-        Mixer.Master.AddComponent(soundPlayer);
+        playbackDevice.MasterMixer.AddComponent(soundPlayer);
         soundPlayer.Play();
 
         PlaybackControls(soundPlayer);
 
-        Mixer.Master.RemoveComponent(soundPlayer);
-        AudioEngine.OnAudioProcessed -= ProcessOnAudioData;
-        return;
+        playbackDevice.MasterMixer.RemoveComponent(soundPlayer);
+        playbackDevice.Stop();
+    }
+    
+    private static void LiveMicrophonePassthrough()
+    {
+        var captureDeviceInfo = SelectDevice(DeviceType.Capture);
+        if (!captureDeviceInfo.HasValue) return;
 
-        void ProcessOnAudioData(Span<float> samples, Capability _)
-        {
-            waveformVisualizer.ProcessOnAudioData(samples);
-        }
+        var playbackDeviceInfo = SelectDevice(DeviceType.Playback);
+        if (!playbackDeviceInfo.HasValue) return;
+
+        using var duplexDevice = Engine.InitializeFullDuplexDevice(playbackDeviceInfo.Value, captureDeviceInfo.Value, Format, DeviceConfig);
+        
+        duplexDevice.Start();
+        
+        using var microphoneProvider = new MicrophoneDataProvider(duplexDevice);
+        using var soundPlayer = new SoundPlayer(Engine, Format, microphoneProvider);
+        
+        duplexDevice.MasterMixer.AddComponent(soundPlayer);
+        
+        microphoneProvider.StartCapture();
+        soundPlayer.Play();
+        
+        Console.WriteLine("\nLive microphone passthrough is active. Press any key to stop.");
+        Console.ReadKey();
+        
+        microphoneProvider.StopCapture();
+        soundPlayer.Stop();
+        
+        duplexDevice.MasterMixer.RemoveComponent(soundPlayer);
+        
+        duplexDevice.Stop();
     }
 
-    private static void PlayAudioWithNoiseReduction()
+    private static void RecordAndPlaybackAudio()
     {
-        Console.Write("Enter file path with noise: ");
-        var noisyFilePath = Console.ReadLine() ?? string.Empty;
+        var captureDeviceInfo = SelectDevice(DeviceType.Capture);
+        if (!captureDeviceInfo.HasValue) return;
 
-        if (!File.Exists(noisyFilePath))
+        using var captureDevice = Engine.InitializeCaptureDevice(captureDeviceInfo.Value, Format, DeviceConfig);
+        captureDevice.Start();
+        
+        var stream = new FileStream(RecordedFilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        using (var recorder = new Recorder(captureDevice, stream))
         {
-            Console.WriteLine("File not found.");
-            return;
-        }
+            Console.WriteLine("Recording started. Press 's' to stop, 'p' to pause/resume.");
+            recorder.StartRecording();
 
-
-        var noiseReductionModifier = new NoiseReductionModifier(
-            fftSize: 2048,
-            alpha: 3f,
-            beta: 0.001f,
-            gain: 1.2f,
-            noiseFrames: 50
-        );
-
-        PlayAudio(new StreamDataProvider(new FileStream(noisyFilePath, FileMode.Open, FileAccess.Read)),
-            modifiers: new List<SoundModifier> { noiseReductionModifier });
-    }
-
-    private static void PlayAudioWithEqualizer()
-    {
-        Console.Write("Enter file path for equalizer: ");
-        var filePath = Console.ReadLine() ?? string.Empty;
-
-        if (!File.Exists(filePath))
-        {
-            Console.WriteLine("File not found.");
-            return;
-        }
-
-        SetOrCreateEngine(sampleRate: 44100, sampleFormat: SampleFormat.F32);
-        var parametricEqualizer = new ParametricEqualizer();
-
-        Console.WriteLine("\nChoose an equalizer preset:");
-        var presets = EqualizerPresets.GetAllPresets();
-        var presetNames = presets.Keys.ToList();
-        for (var i = 0; i < presetNames.Count; i++)
-        {
-            Console.WriteLine($"{i + 1}. {presetNames[i]}");
-        }
-
-        if (int.TryParse(Console.ReadLine(), out var presetChoice) && presetChoice > 0 &&
-            presetChoice <= presetNames.Count)
-        {
-            parametricEqualizer.AddBands(presets[presetNames[presetChoice - 1]]);
-            Console.WriteLine($"\nApplied preset: {presetNames[presetChoice - 1]}");
-        }
-        else
-        {
-            Console.WriteLine("\nNo valid preset selected. Using default.");
-            parametricEqualizer.AddBands(presets["Default"]);
-        }
-
-        Console.WriteLine();
-
-        PlayAudio(new StreamDataProvider(new FileStream(filePath, FileMode.Open, FileAccess.Read)),
-            modifiers: new List<SoundModifier> { parametricEqualizer });
-    }
-
-    private static void SaveWaveformAsText(string filePath, int width, int height, List<float> waveform)
-    {
-        if (waveform.Count == 0)
-        {
-            return;
-        }
-
-        var yScale = height / 2.0f;
-        var waveformChars = new char[height, width];
-        for (var i = 0; i < height; i++)
-        {
-            for (var j = 0; j < width; j++)
+            while (recorder.State != PlaybackState.Stopped)
             {
-                waveformChars[i, j] = ' ';
+                var key = Console.ReadKey(true).Key;
+                switch (key)
+                {
+                    case ConsoleKey.S:
+                        recorder.StopRecording();
+                        break;
+                    case ConsoleKey.P:
+                        if (recorder.State == PlaybackState.Paused)
+                        {
+                            recorder.ResumeRecording();
+                            Console.WriteLine("Recording resumed.");
+                        }
+                        else
+                        {
+                            recorder.PauseRecording();
+                            Console.WriteLine("Recording paused.");
+                        }
+                        break;
+                }
+            }
+        }
+        
+        stream.Dispose();
+        captureDevice.Stop();
+
+        Console.WriteLine($"\nRecording finished. File saved to: {RecordedFilePath}");
+        Console.WriteLine("Press 'p' to play back or any other key to skip.");
+        if (Console.ReadKey(true).Key != ConsoleKey.P) return;
+
+        // Playback
+        var playbackDeviceInfo = SelectDevice(DeviceType.Playback);
+        if (!playbackDeviceInfo.HasValue) return;
+
+        using var playbackDevice = Engine.InitializePlaybackDevice(playbackDeviceInfo.Value, Format, DeviceConfig);
+        playbackDevice.Start();
+
+        using var dataProvider = new StreamDataProvider(Engine, Format, new FileStream(RecordedFilePath, FileMode.Open, FileAccess.Read));
+        using var soundPlayer = new SoundPlayer(Engine, Format, dataProvider);
+
+        playbackDevice.MasterMixer.AddComponent(soundPlayer);
+        soundPlayer.Play();
+
+        PlaybackControls(soundPlayer);
+
+        playbackDevice.MasterMixer.RemoveComponent(soundPlayer);
+        playbackDevice.Stop();
+    }
+
+    #endregion
+
+    #region Playback Controls UI
+    
+    private static void PlaybackControls(ISoundPlayer player)
+    {
+        Console.WriteLine("\n--- Playback Controls ---");
+        Console.WriteLine("'P': Play/Pause | 'S': Seek | 'V': Volume | '+/-': Speed | 'R': Reset Speed | Any other: Stop");
+        
+        using var timer = new System.Timers.Timer(500);
+        timer.AutoReset = true;
+        timer.Elapsed += (_, _) =>
+        {
+            if (player.State != PlaybackState.Stopped)
+            {
+                Console.Write($"\rTime: {TimeSpan.FromSeconds(player.Time):mm\\:ss} / {TimeSpan.FromSeconds(player.Duration):mm\\:ss} | Speed: {player.PlaybackSpeed:F1}x | Vol: {player.Volume:F1}  ");
+            }
+        };
+        timer.Start();
+
+        while (player.State is PlaybackState.Playing or PlaybackState.Paused)
+        {
+            var keyInfo = Console.ReadKey(true);
+            switch (keyInfo.Key)
+            {
+                case ConsoleKey.P:
+                    if (player.State == PlaybackState.Playing) player.Pause();
+                    else player.Play();
+                    break;
+                case ConsoleKey.S:
+                    Console.Write("\nEnter seek time in seconds (e.g., 5.0): ");
+                    if (float.TryParse(Console.ReadLine(), out var seekTime)) player.Seek(TimeSpan.FromSeconds(seekTime));
+                    else Console.WriteLine("Invalid seek time.");
+                    break;
+                case ConsoleKey.OemPlus or ConsoleKey.Add:
+                    player.PlaybackSpeed = Math.Min(player.PlaybackSpeed + 0.1f, 4.0f);
+                    break;
+                case ConsoleKey.OemMinus or ConsoleKey.Subtract:
+                    player.PlaybackSpeed = Math.Max(0.1f, player.PlaybackSpeed - 0.1f);
+                    break;
+                case ConsoleKey.R:
+                    player.PlaybackSpeed = 1.0f;
+                    break;
+                case ConsoleKey.V:
+                    Console.Write("\nEnter volume (0.0 to 2.0): ");
+                    if (float.TryParse(Console.ReadLine(), out var volume))
+                        player.Volume = Math.Clamp(volume, 0.0f, 2.0f);
+                    else
+                        Console.WriteLine("Invalid volume.");
+                    break;
+                default:
+                    player.Stop();
+                    break;
             }
         }
 
-        char[] charMap = [' ', '.', ':', '|', '#', '@'];
-        var numChars = charMap.Length;
-
-        for (var i = 0; i < width; i++)
-        {
-            var sampleIndex = (int)(i * (waveform.Count / (float)width));
-            var sampleValue = waveform[Math.Clamp(sampleIndex, 0, waveform.Count - 1)];
-            var charIndex = (int)((sampleValue + 1) / 2 * (numChars - 1));
-            charIndex = Math.Clamp(charIndex, 0, numChars - 1);
-            var y = (int)((1 - sampleValue) * yScale);
-            y = Math.Clamp(y, 0, height - 1);
-            waveformChars[y, i] = charMap[charIndex];
-        }
-
-        using StreamWriter writer = new(filePath);
-        for (var i = 0; i < height; i++)
-        {
-            for (var j = 0; j < width; j++)
-            {
-                writer.Write(waveformChars[i, j]);
-            }
-
-            writer.WriteLine();
-        }
+        timer.Stop();
+        Console.WriteLine("\nPlayback stopped.                ");
     }
+
+    #endregion
 }

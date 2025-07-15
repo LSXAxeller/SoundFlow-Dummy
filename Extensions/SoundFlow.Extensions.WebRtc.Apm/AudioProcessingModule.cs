@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 
 namespace SoundFlow.Extensions.WebRtc.Apm;
 
+#pragma warning disable CS1591
+
 /// <summary>
 /// Error codes returned by the WebRTC Audio Processing Module
 /// </summary>
@@ -61,6 +63,7 @@ public enum RuntimeSettingType
     CapturePostGain,
     CaptureOutputUsed
 }
+#pragma warning restore CS1591
 
 /// <summary>
 /// Represents a stream configuration for audio processing
@@ -794,10 +797,10 @@ public class AudioProcessingModule : IDisposable
     #endregion
 }
 
-public static class NativeMethods
+public static partial class NativeMethods
 {
     private const string LibraryName = "webrtc-apm";
-    
+
     static NativeMethods()
     {
         NativeLibrary.SetDllImportResolver(typeof(NativeMethods).Assembly, NativeLibraryResolver.Resolve);
@@ -807,242 +810,247 @@ public static class NativeMethods
     {
         public static nint Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
         {
-            if (NativeLibrary.TryLoad(LibraryName, out var library))
+            // 1. Get the platform-specific library file name (e.g., "libwebrtc-apm.so", "webrtc-apm.dll").
+            var platformSpecificName = GetPlatformSpecificLibraryName(libraryName);
+
+            // 2. Try to load the library using its platform-specific name, allowing OS to find it in standard paths.
+            if (NativeLibrary.TryLoad(platformSpecificName, assembly, searchPath, out var library))
+                return library;
+
+            // 3. If that fails, try to load it from the application's 'runtimes' directory for self-contained apps.
+            var relativePath = GetLibraryPath(libraryName);
+            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, relativePath);
+
+            if (File.Exists(fullPath) && NativeLibrary.TryLoad(fullPath, out library))
                 return library;
             
-            var libraryPath = GetLibraryPath(LibraryName);
-            // Safeguard against dotnet cli working directory inconsistency
-            if (!File.Exists(libraryPath))
-                libraryPath = $"{Path.GetDirectoryName(assembly.Location)}/{libraryPath}";
-            
-            return NativeLibrary.Load(libraryPath);
+            // 4. If not found, use Load() to let the runtime throw a detailed DllNotFoundException.
+            return NativeLibrary.Load(fullPath); 
         }
 
+        /// <summary>
+        /// Gets the platform-specific library name.
+        /// </summary>
+        private static string GetPlatformSpecificLibraryName(string libraryName)
+        {
+            if (OperatingSystem.IsWindows())
+                return $"{libraryName}.dll";
+
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsIOS())
+                return $"lib{libraryName}.dylib";
+
+            // Default to Linux/Android/FreeBSD convention.
+            return $"lib{libraryName}.so";
+        }
+
+        /// <summary>
+        /// Constructs the relative path to the native library within the 'runtimes' folder.
+        /// </summary>
         private static string GetLibraryPath(string libraryName)
         {
             const string relativeBase = "runtimes";
+            var platformSpecificName = GetPlatformSpecificLibraryName(libraryName);
+
+            string rid;
             if (OperatingSystem.IsWindows())
             {
-                return RuntimeInformation.ProcessArchitecture switch
+                rid = RuntimeInformation.ProcessArchitecture switch
                 {
-                    Architecture.X86 => $"{relativeBase}/win-x86/native/{libraryName}.dll",
-                    Architecture.X64 => $"{relativeBase}/win-x64/native/{libraryName}.dll",
+                    Architecture.X86 => "win-x86",
+                    Architecture.X64 => "win-x64",
                     _ => throw new PlatformNotSupportedException(
                         $"Unsupported Windows architecture: {RuntimeInformation.ProcessArchitecture}")
                 };
             }
-
-            if (OperatingSystem.IsMacOS())
+            else if (OperatingSystem.IsMacOS())
             {
-                return RuntimeInformation.ProcessArchitecture switch
+                rid = RuntimeInformation.ProcessArchitecture switch
                 {
-                    Architecture.X64 => $"{relativeBase}/osx-x64/native/lib{libraryName}.dylib",
-                    Architecture.Arm64 => $"{relativeBase}/osx-arm64/native/lib{libraryName}.dylib",
+                    Architecture.X64 => "osx-x64",
+                    Architecture.Arm64 => "osx-arm64",
                     _ => throw new PlatformNotSupportedException(
                         $"Unsupported macOS architecture: {RuntimeInformation.ProcessArchitecture}")
                 };
             }
-
-            if (OperatingSystem.IsLinux())
+            else if (OperatingSystem.IsLinux())
             {
-                return RuntimeInformation.ProcessArchitecture switch
+                rid = RuntimeInformation.ProcessArchitecture switch
                 {
-                    Architecture.X64 => $"{relativeBase}/linux-x64/native/lib{libraryName}.so",
-                    Architecture.Arm => $"{relativeBase}/linux-arm/native/lib{libraryName}.so",
-                    Architecture.Arm64 => $"{relativeBase}/linux-arm64/native/lib{libraryName}.so",
+                    Architecture.X64 => "linux-x64",
+                    Architecture.Arm => "linux-arm",
+                    Architecture.Arm64 => "linux-arm64",
                     _ => throw new PlatformNotSupportedException(
                         $"Unsupported Linux architecture: {RuntimeInformation.ProcessArchitecture}")
                 };
             }
-
-            if (OperatingSystem.IsAndroid())
+            else if (OperatingSystem.IsAndroid())
             {
-                return RuntimeInformation.ProcessArchitecture switch
+                 rid = RuntimeInformation.ProcessArchitecture switch
                 {
-                    Architecture.X64 => $"{relativeBase}/android-x64/native/lib{libraryName}.so",
-                    Architecture.Arm64 => $"{relativeBase}/android-arm64/native/lib{libraryName}.so",
+                    Architecture.X64 => "android-x64",
+                    Architecture.Arm64 => "android-arm64",
                     _ => throw new PlatformNotSupportedException(
                         $"Unsupported Android architecture: {RuntimeInformation.ProcessArchitecture}")
                 };
             }
-
-            if (OperatingSystem.IsIOS())
+            else if (OperatingSystem.IsIOS())
             {
-                return RuntimeInformation.ProcessArchitecture switch
+                rid = RuntimeInformation.ProcessArchitecture switch
                 {
-                    Architecture.Arm64 => $"{relativeBase}/ios-arm64/native/{libraryName}.framework/{libraryName}",
+                    // iOS uses .framework folders
+                    Architecture.Arm64 => "ios-arm64",
                     _ => throw new PlatformNotSupportedException(
                         $"Unsupported iOS architecture: {RuntimeInformation.ProcessArchitecture}")
                 };
             }
+            else
+            {
+                throw new PlatformNotSupportedException(
+                    $"Unsupported operating system: {RuntimeInformation.OSDescription}");
+            }
 
-            throw new PlatformNotSupportedException(
-                $"Unsupported operating system: {RuntimeInformation.OSDescription}");
+            return Path.Combine(relativeBase, rid, "native", platformSpecificName);
         }
     }
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_create", CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_create();
+#pragma warning disable CS1591
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_create")]
+    public static partial IntPtr webrtc_apm_create();
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_destroy", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_destroy(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_destroy")]
+    public static partial void webrtc_apm_destroy(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_create", CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_config_create();
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_create")]
+    public static partial IntPtr webrtc_apm_config_create();
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_destroy", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_destroy(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_destroy")]
+    public static partial void webrtc_apm_config_destroy(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_set_echo_canceller",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_set_echo_canceller(IntPtr config, int enabled, int mobile_mode);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_set_echo_canceller")]
+    public static partial void webrtc_apm_config_set_echo_canceller(IntPtr config, int enabled, int mobile_mode);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_set_noise_suppression",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_set_noise_suppression(IntPtr config, int enabled,
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_set_noise_suppression")]
+    public static partial void webrtc_apm_config_set_noise_suppression(IntPtr config, int enabled,
         NoiseSuppressionLevel level);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_set_gain_controller1",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_set_gain_controller1(IntPtr config, int enabled, GainControlMode mode,
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_set_gain_controller1")]
+    public static partial void webrtc_apm_config_set_gain_controller1(IntPtr config, int enabled, GainControlMode mode,
         int target_level_dbfs, int compression_gain_db, int enable_limiter);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_set_gain_controller2",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_set_gain_controller2(IntPtr config, int enabled);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_set_gain_controller2")]
+    public static partial void webrtc_apm_config_set_gain_controller2(IntPtr config, int enabled);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_set_high_pass_filter",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_set_high_pass_filter(IntPtr config, int enabled);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_set_high_pass_filter")]
+    public static partial void webrtc_apm_config_set_high_pass_filter(IntPtr config, int enabled);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_set_pre_amplifier",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_set_pre_amplifier(IntPtr config, int enabled, float fixed_gain_factor);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_set_pre_amplifier")]
+    public static partial void webrtc_apm_config_set_pre_amplifier(IntPtr config, int enabled, float fixed_gain_factor);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_config_set_pipeline", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_config_set_pipeline(IntPtr config, int max_internal_rate,
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_config_set_pipeline")]
+    public static partial void webrtc_apm_config_set_pipeline(IntPtr config, int max_internal_rate,
         int multi_channel_render, int multi_channel_capture, DownmixMethod downmix_method);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_apply_config", CallingConvention = CallingConvention.Cdecl)]
-    public static extern ApmError webrtc_apm_apply_config(IntPtr apm, IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_apply_config")]
+    public static partial ApmError webrtc_apm_apply_config(IntPtr apm, IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_create",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_stream_config_create(int sample_rate_hz, UIntPtr num_channels);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_create")]
+    public static partial IntPtr webrtc_apm_stream_config_create(int sample_rate_hz, UIntPtr num_channels);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_destroy",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_stream_config_destroy(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_destroy")]
+    public static partial void webrtc_apm_stream_config_destroy(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_sample_rate_hz",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern int webrtc_apm_stream_config_sample_rate_hz(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_sample_rate_hz")]
+    public static partial int webrtc_apm_stream_config_sample_rate_hz(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_num_channels",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern UIntPtr webrtc_apm_stream_config_num_channels(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_stream_config_num_channels")]
+    public static partial UIntPtr webrtc_apm_stream_config_num_channels(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_create",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_processing_config_create();
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_create")]
+    public static partial IntPtr webrtc_apm_processing_config_create();
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_destroy",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_processing_config_destroy(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_destroy")]
+    public static partial void webrtc_apm_processing_config_destroy(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_input_stream",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_processing_config_input_stream(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_input_stream")]
+    public static partial IntPtr webrtc_apm_processing_config_input_stream(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_output_stream",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_processing_config_output_stream(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_output_stream")]
+    public static partial IntPtr webrtc_apm_processing_config_output_stream(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_reverse_input_stream",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_processing_config_reverse_input_stream(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_reverse_input_stream")]
+    public static partial IntPtr webrtc_apm_processing_config_reverse_input_stream(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_reverse_output_stream",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr webrtc_apm_processing_config_reverse_output_stream(IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_processing_config_reverse_output_stream")]
+    public static partial IntPtr webrtc_apm_processing_config_reverse_output_stream(IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_initialize", CallingConvention = CallingConvention.Cdecl)]
-    public static extern ApmError webrtc_apm_initialize(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_initialize")]
+    public static partial ApmError webrtc_apm_initialize(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_initialize_with_config",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern ApmError webrtc_apm_initialize_with_config(IntPtr apm, IntPtr config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_initialize_with_config")]
+    public static partial ApmError webrtc_apm_initialize_with_config(IntPtr apm, IntPtr config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_process_stream", CallingConvention = CallingConvention.Cdecl)]
-    public static extern ApmError webrtc_apm_process_stream(IntPtr apm, IntPtr src, IntPtr input_config,
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_process_stream")]
+    public static partial ApmError webrtc_apm_process_stream(IntPtr apm, IntPtr src, IntPtr input_config,
         IntPtr output_config, IntPtr dest);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_process_reverse_stream",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern ApmError webrtc_apm_process_reverse_stream(IntPtr apm, IntPtr src, IntPtr input_config,
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_process_reverse_stream")]
+    public static partial ApmError webrtc_apm_process_reverse_stream(IntPtr apm, IntPtr src, IntPtr input_config,
         IntPtr output_config, IntPtr dest);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_analyze_reverse_stream",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern ApmError webrtc_apm_analyze_reverse_stream(IntPtr apm, IntPtr data, IntPtr reverse_config);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_analyze_reverse_stream")]
+    public static partial ApmError webrtc_apm_analyze_reverse_stream(IntPtr apm, IntPtr data, IntPtr reverse_config);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_set_stream_analog_level",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_set_stream_analog_level(IntPtr apm, int level);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_set_stream_analog_level")]
+    public static partial void webrtc_apm_set_stream_analog_level(IntPtr apm, int level);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_recommended_stream_analog_level",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern int webrtc_apm_recommended_stream_analog_level(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_recommended_stream_analog_level")]
+    public static partial int webrtc_apm_recommended_stream_analog_level(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_set_stream_delay_ms", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_set_stream_delay_ms(IntPtr apm, int delay);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_set_stream_delay_ms")]
+    public static partial void webrtc_apm_set_stream_delay_ms(IntPtr apm, int delay);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_stream_delay_ms", CallingConvention = CallingConvention.Cdecl)]
-    public static extern int webrtc_apm_stream_delay_ms(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_stream_delay_ms")]
+    public static partial int webrtc_apm_stream_delay_ms(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_set_stream_key_pressed",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_set_stream_key_pressed(IntPtr apm, int key_pressed);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_set_stream_key_pressed")]
+    public static partial void webrtc_apm_set_stream_key_pressed(IntPtr apm, int key_pressed);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_set_output_will_be_muted",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_set_output_will_be_muted(IntPtr apm, int muted);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_set_output_will_be_muted")]
+    public static partial void webrtc_apm_set_output_will_be_muted(IntPtr apm, int muted);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_set_runtime_setting_float",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_set_runtime_setting_float(IntPtr apm, RuntimeSettingType type, float value);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_set_runtime_setting_float")]
+    public static partial void webrtc_apm_set_runtime_setting_float(IntPtr apm, RuntimeSettingType type, float value);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_set_runtime_setting_int",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_set_runtime_setting_int(IntPtr apm, RuntimeSettingType type, int value);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_set_runtime_setting_int")]
+    public static partial void webrtc_apm_set_runtime_setting_int(IntPtr apm, RuntimeSettingType type, int value);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_proc_sample_rate_hz", CallingConvention = CallingConvention.Cdecl)]
-    public static extern int webrtc_apm_proc_sample_rate_hz(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_proc_sample_rate_hz")]
+    public static partial int webrtc_apm_proc_sample_rate_hz(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_proc_split_sample_rate_hz",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern int webrtc_apm_proc_split_sample_rate_hz(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_proc_split_sample_rate_hz")]
+    public static partial int webrtc_apm_proc_split_sample_rate_hz(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_num_input_channels", CallingConvention = CallingConvention.Cdecl)]
-    public static extern UIntPtr webrtc_apm_num_input_channels(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_num_input_channels")]
+    public static partial UIntPtr webrtc_apm_num_input_channels(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_num_proc_channels", CallingConvention = CallingConvention.Cdecl)]
-    public static extern UIntPtr webrtc_apm_num_proc_channels(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_num_proc_channels")]
+    public static partial UIntPtr webrtc_apm_num_proc_channels(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_num_output_channels", CallingConvention = CallingConvention.Cdecl)]
-    public static extern UIntPtr webrtc_apm_num_output_channels(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_num_output_channels")]
+    public static partial UIntPtr webrtc_apm_num_output_channels(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_num_reverse_channels",
-        CallingConvention = CallingConvention.Cdecl)]
-    public static extern UIntPtr webrtc_apm_num_reverse_channels(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_num_reverse_channels")]
+    public static partial UIntPtr webrtc_apm_num_reverse_channels(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_create_aec_dump", CallingConvention = CallingConvention.Cdecl)]
-    public static extern int webrtc_apm_create_aec_dump(IntPtr apm, [MarshalAs(UnmanagedType.LPStr)] string file_name,
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_create_aec_dump")]
+    public static partial int webrtc_apm_create_aec_dump(IntPtr apm, [MarshalAs(UnmanagedType.LPStr)] string file_name,
         long max_log_size_bytes);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_detach_aec_dump", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void webrtc_apm_detach_aec_dump(IntPtr apm);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_detach_aec_dump")]
+    public static partial void webrtc_apm_detach_aec_dump(IntPtr apm);
 
-    [DllImport(LibraryName, EntryPoint = "webrtc_apm_get_frame_size", CallingConvention = CallingConvention.Cdecl)]
-    public static extern UIntPtr webrtc_apm_get_frame_size(int sample_rate_hz);
+    [LibraryImport(LibraryName, EntryPoint = "webrtc_apm_get_frame_size")]
+    public static partial UIntPtr webrtc_apm_get_frame_size(int sample_rate_hz);
+    
+    #pragma warning restore CS1591
 }

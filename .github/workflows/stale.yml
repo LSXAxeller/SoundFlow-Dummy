@@ -7,7 +7,7 @@ name: Mark stale issues and pull requests
 
 on:
   schedule:
-  - cron: '44 8 * * *'
+    - cron: '44 8 * * *'
 
 jobs:
   stale:
@@ -18,22 +18,23 @@ jobs:
       pull-requests: write
 
     steps:
-    - uses: actions/stale@v5
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-        days-before-stale: 14
-        days-before-close: 7
-        stale-issue-message: |
-          This issue has been automatically marked as stale because it has not had recent activity. 
-          It will be closed if no further activity occurs. 
-          
-          If this issue is still relevant, please leave a comment indicating that you would like it to remain open. 
-          Thank you for your contributions.
-        stale-pr-message: |
-          This pull request has been automatically marked as stale because it has not had recent activity. 
-          It will be closed if no further activity occurs. 
-
-          If you are still working on this pull request, please leave a comment indicating that you would like it to remain open.
-          Thank you for your contributions. 
-        stale-issue-label: 'no-issue-activity'
-        stale-pr-label: 'no-pr-activity'
+      - uses: actions/stale@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-stale: 14
+          days-before-close: 7
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had recent activity. 
+            It will be closed if no further activity occurs. 
+            
+            If this issue is still relevant, please leave a comment indicating that you would like it to remain open. 
+            Thank you for your contributions.
+          stale-pr-message: |
+            This pull request has been automatically marked as stale because it has not had recent activity. 
+            It will be closed if no further activity occurs. 
+            
+            If you are still working on this pull request, please leave a comment indicating that you would like it to remain open.
+            Thank you for your contributions. 
+          stale-issue-label: 'no-issue-activity'
+          stale-pr-label: 'no-pr-activity'
+          exempt-issue-labels: 'in-progress,backlog-feature'

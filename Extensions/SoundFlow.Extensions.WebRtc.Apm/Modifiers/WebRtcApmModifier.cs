@@ -1,6 +1,7 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.InteropServices;
 using SoundFlow.Abstracts;
+using SoundFlow.Abstracts.Devices;
 using SoundFlow.Enums;
 
 namespace SoundFlow.Extensions.WebRtc.Apm.Modifiers;
@@ -12,6 +13,7 @@ namespace SoundFlow.Extensions.WebRtc.Apm.Modifiers;
 /// </summary>
 public sealed class WebRtcApmModifier : SoundModifier, IDisposable
 {
+    private readonly AudioDevice _device;
     private AudioProcessingModule? _apm;
     private ApmConfig? _apmConfig;
     private readonly object _apmLock = new();
@@ -259,7 +261,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
 
     /// <summary>
     /// Settings for configuring the processing pipeline within WebRTC APM,
-    /// specifically how multi-channel audio is handled and downmixed.
+    /// specifically how multichannel audio is handled and downmixed.
     /// </summary>
     public class ProcessingPipelineSettings
     {
@@ -269,7 +271,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
         private DownmixMethod _downmixMethod;
 
         /// <summary>
-        /// Gets or sets a value indicating whether multi-channel processing is enabled for the capture (near-end) stream.
+        /// Gets or sets a value indicating whether multichannel processing is enabled for the capture (near-end) stream.
         /// If false, input channels might be downmixed before processing.
         /// </summary>
         public bool UseMultichannelCapture
@@ -279,7 +281,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
         }
 
         /// <summary>
-        /// Gets or sets a value indicating whether multi-channel processing is enabled for the render (far-end) stream.
+        /// Gets or sets a value indicating whether multichannel processing is enabled for the render (far-end) stream.
         /// If false, input channels might be downmixed before processing.
         /// </summary>
         public bool UseMultichannelRender
@@ -289,7 +291,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
         }
 
         /// <summary>
-        /// Gets or sets the method used for downmixing channels if multi-channel processing is disabled for a stream.
+        /// Gets or sets the method used for downmixing channels if multichannel processing is disabled for a stream.
         /// </summary>
         public DownmixMethod DownmixMethod
         {
@@ -334,7 +336,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
     public AutomaticGainControlSettings AutomaticGainControl { get; }
 
     /// <summary>
-    /// Gets the settings object for configuring the processing pipeline (multi-channel, downmixing).
+    /// Gets the settings object for configuring the processing pipeline (multichannel, downmixing).
     /// </summary>
     public ProcessingPipelineSettings ProcessingPipeline { get; }
 
@@ -382,6 +384,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="WebRtcApmModifier"/> class with specified settings.
     /// </summary>
+    /// <param name="device">The capture device to source audio from.</param>
     /// <param name="aecEnabled">Initial state for Echo Cancellation Enabled.</param>
     /// <param name="aecMobileMode">Initial state for Echo Cancellation Mobile Mode.</param>
     /// <param name="aecLatencyMs">Initial state for Echo Cancellation Latency in ms.</param>
@@ -401,6 +404,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
     /// <param name="downmixMethod">Initial state for ProcessingPipeline.DownmixMethod.</param>
     /// <exception cref="ArgumentException">Thrown if the audio sample rate is not supported by WebRTC APM (8000, 16000, 32000, or 48000 Hz).</exception>
     public WebRtcApmModifier(
+        AudioDevice device,
         bool aecEnabled = false, bool aecMobileMode = false, int aecLatencyMs = 40,
         bool nsEnabled = false, NoiseSuppressionLevel nsLevel = NoiseSuppressionLevel.High,
         bool agc1Enabled = false, GainControlMode agcMode = GainControlMode.AdaptiveDigital,
@@ -410,8 +414,9 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
         bool preAmpEnabled = false, float preAmpGain = 1.0f,
         bool? useMultichannelCapture = null, bool? useMultichannelRender = null, DownmixMethod downmixMethod = DownmixMethod.AverageChannels)
     {
-        _sampleRate = AudioEngine.Instance.SampleRate;
-        _numChannels = AudioEngine.Channels;
+        _device = device;
+        _sampleRate = _device.Format.SampleRate;
+        _numChannels = _device.Format.Channels;
 
         if (_sampleRate != 8000 && _sampleRate != 16000 && _sampleRate != 32000 && _sampleRate != 48000)
             throw new ArgumentException($"Unsupported sample rate for WebRTC Audio Processing Module: {_sampleRate} Hz. Must be 8k, 16k, 32k, or 48k.");
@@ -431,7 +436,7 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
             return;
         }
 
-        // Determine default multi-channel settings based on channel count, unless explicitly overridden
+        // Determine default multichannel settings based on channel count, unless explicitly overridden
         var defaultUseMultiChannel = _numChannels > 1;
         var initialUseMultichannelCapture = useMultichannelCapture ?? defaultUseMultiChannel;
         var initialUseMultichannelRender = useMultichannelRender ?? defaultUseMultiChannel;
@@ -504,7 +509,9 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
                 _dummyReverseOutputChannelArrayHandle = GCHandle.Alloc(_dummyReverseOutputChannelPtrs, GCHandleType.Pinned);
                 _dummyReverseOutputChannelArrayPtr = _dummyReverseOutputChannelArrayHandle.AddrOfPinnedObject();
 
-                AudioEngine.OnAudioProcessed += HandleAudioEngineProcessedForAec;
+                if (EchoCancellation.Enabled && _device is AudioCaptureDevice audioCaptureDevice)
+                    audioCaptureDevice.OnAudioProcessed += HandleAudioEngineProcessedForAec;
+                
                 UpdateApmStreamDelay();
 
                 _isApmSuccessfullyInitialized = true;
@@ -563,7 +570,8 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
     /// Output samples are dequeued and written back to the buffer.
     /// </summary>
     /// <param name="buffer">The audio buffer to process (interleaved float samples).</param>
-    public override void Process(Span<float> buffer) // Near-end processing
+    /// <param name="channels">The number of channels in the audio buffer.</param>
+    public override void Process(Span<float> buffer, int channels) // Near-end processing
     {
         if (!Enabled || !_isApmSuccessfullyInitialized || _apm == null || _apmConfig == null ||
             _inputStreamConfig == null || _outputStreamConfig == null || _deinterleavedInputApmFrame == null ||
@@ -763,11 +771,8 @@ public sealed class WebRtcApmModifier : SoundModifier, IDisposable
     {
         if (!_isDisposed)
         {
-            if (disposing)
-            {
-                if (_isApmSuccessfullyInitialized)
-                    AudioEngine.OnAudioProcessed -= HandleAudioEngineProcessedForAec;
-            }
+            if (disposing &&_isApmSuccessfullyInitialized && EchoCancellation.Enabled && _device is AudioCaptureDevice audioCaptureDevice)
+                audioCaptureDevice.OnAudioProcessed -= HandleAudioEngineProcessedForAec;
 
             // Free unmanaged resources (native handles, pointers)
             DisposeApmNativeResources();

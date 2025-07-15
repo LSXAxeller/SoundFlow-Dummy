@@ -5,7 +5,6 @@
 
 **A Powerful and Extensible .NET Audio Engine for Enterprise Applications**
 
-
 [![Build Status](https://github.com/LSXPrime/SoundFlow/actions/workflows/build.yml/badge.svg)](https://github.com/LSXPrime/SoundFlow/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![NuGet](https://img.shields.io/nuget/v/SoundFlow.svg)](https://www.nuget.org/packages/SoundFlow) [![.NET](https://img.shields.io/badge/.NET-8.0-blue.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 
 </div>
@@ -13,11 +12,11 @@
 
 ## Introduction
 
-SoundFlow is a robust and versatile .NET audio engine designed for seamless cross-platform audio processing. It provides a comprehensive set of features for audio playback, recording, processing, analysis, and visualization, all within a well-structured and extensible framework.
+SoundFlow is a robust and versatile .NET audio engine designed for seamless cross-platform audio processing. It provides a comprehensive set of features for audio playback, recording, processing, analysis, and visualization, all within a well-structured and extensible framework. SoundFlow empowers developers to build sophisticated audio applications, from real-time communication systems to advanced non-linear audio editors.
 
 **Key Features:**
 
-*   **Cross-Platform by Design:** Runs seamlessly on Windows, macOS, Linux, Android, and iOS or any other .NET compatible platform.
+*   **Cross-Platform Compatibility:** Runs seamlessly on Windows, macOS, Linux, Android, iOS, and FreeBSD, ensuring broad deployment options.
 *   **Modular Component Architecture:** Build custom audio pipelines by connecting sources, modifiers, mixers, and analyzers.
 *   **Plug & Play Integrations:** Extend SoundFlow's capabilities with official integration packages, such as the WebRTC Audio Processing Module for advanced noise suppression, echo cancellation, and automatic gain control.
 *   **Extensibility:** Easily add custom audio components, effects, and visualizers to tailor the engine to your specific needs.
@@ -31,6 +30,12 @@ SoundFlow is a robust and versatile .NET audio engine designed for seamless cros
 *   **Surround Sound:** Supports advanced surround sound configurations with customizable speaker positions, delays, and panning methods.
 *   **HLS Streaming Support:** Integrate internet radio and online audio via HTTP Live Streaming.
 *   **Backend Agnostic:** Supports the `MiniAudio` backend out of the box, with the ability to add others.
+*   **Non-Destructive Audio Editing & Persistence:**
+    *   **Compositions & Tracks:** Organize audio projects into multi-track compositions, allowing flexible arrangement and mixing.
+    *   **Audio Segments:** Place and manipulate audio clips on a timeline with granular control over their playback, including volume, pan, fades (Linear, Logarithmic, S-Curve), reversal, and advanced looping (repetitions or target duration).
+    *   **Pitch-Preserved Time Stretching:** Modify the duration of audio segments without altering their pitch, ideal for adapting content to specific timeframes.
+    *   **Project Save/Load:** Persist entire audio compositions to disk, including media consolidation and embedding options, with support for relinking missing audio sources.
+    *   **Timeline Manipulation:** Programmatically insert, remove, replace, or silence audio sections on a track, with automatic shifting of subsequent content.
 
 ## Getting Started
 
@@ -92,6 +97,10 @@ SoundFlow is built upon a few key concepts:
 *   **Audio Playback & Recording:** Components for playing and capturing audio, including surround sound support.
 *   **Audio Providers:** Standardized way to read audio data from various sources (files, streams, memory).
 *   **Audio Analysis & Visualization:** Tools for extracting information from audio and creating visual representations.
+*   **Composition (`Composition`):** The top-level project file that defines a multi-track audio timeline, applies master effects, and manages persistence.
+*   **Tracks (`Track`):** Containers within a `Composition` that hold `AudioSegment`s. Tracks have their own settings for volume, pan, mute, solo, and can host effects/analyzers.
+*   **Audio Segments (`AudioSegment`):** Individual audio clips placed on a `Track`'s timeline. Segments reference a portion of an `ISoundDataProvider` and can apply segment-specific settings like fades, looping, reversal, speed, and pitch-preserved time stretching.
+*   **Time Stretchers (`WsolaTimeStretcher`):** An advanced internal component used by `AudioSegment` and `SoundPlayerBase` to perform high-quality, pitch-preserved time manipulation.
 
 **For detailed information on these concepts, please refer to the [SoundFlow Documentation](https://lsxprime.github.io/soundflow-docs/).**
 
@@ -130,8 +139,9 @@ The **[Documentation](https://lsxprime.github.io/soundflow-docs/)** provides a w
 *   **Effects:** Applying various audio effects.
 *   **Analysis:** Getting RMS level, analyzing frequency spectrum.
 *   **Visualization:** Creating level meters, waveform displays, and spectrum analyzers.
+*   **Composition:** Managing audio projects, including creating, editing, and saving multi-track compositions. 
 
-**(Note:** You can also find example code in the `Samples` folder of the repository.)
+**(Note:** You can also find extensive example code in the `Samples` folder of the repository.)
 
 ## Contributing
 
