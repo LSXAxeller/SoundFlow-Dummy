@@ -56,6 +56,8 @@ jobs:
       - name: Copy WASM Artifacts
         shell: bash
         run: |
+          echo "Contents of Native/build/ after build:"
+          ls -R .
           cp "${{ github.workspace }}/Native/build/miniaudio.wasm" "runtimes/${{ matrix.rid }}/native/"
           cp "${{ github.workspace }}/Native/build/miniaudio.js" "runtimes/${{ matrix.rid }}/native/"
 
