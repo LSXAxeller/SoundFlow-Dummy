@@ -63,8 +63,7 @@ jobs:
       - name: Copy WASM Artifacts
         shell: bash
         run: |
-          cp "${{ github.workspace }}/Native/build/"*.wasm "runtimes/${{ matrix.rid }}/native/"
-          cp "${{ github.workspace }}/Native/build/"*.js "runtimes/${{ matrix.rid }}/native/"
+          cp {} "runtimes/${{ matrix.rid }}/native/"
 
       # 8. Upload the artifact for this specific build
       - name: Upload Artifact

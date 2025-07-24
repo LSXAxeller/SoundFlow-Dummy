@@ -88,6 +88,9 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
         "-s SIDE_MODULE=1"
         "-s USE_PTHREADS=1"
         "-s EXPORT_ALL=1" # Export all available functions
+        "-s MODULARIZE=1"
+        "-s EXPORT_ES6=1"
+        "-s EXPORT_NAME='miniaudio'"
     )
 
     # ensure the output file has a .wasm extension.
