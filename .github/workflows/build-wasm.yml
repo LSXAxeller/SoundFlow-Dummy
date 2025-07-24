@@ -1,0 +1,94 @@
+name: Build WASM Library
+
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - 'Native/**'
+      - '.github/workflows/build-wasm.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: wasm-browser
+            platform: WASM
+
+    name: Build for ${{ matrix.platform }}
+
+    steps:
+      # 1. Check out the repository and its submodules
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2. Install the Emscripten SDK
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '4.0.11'
+          actions-cache-folder: 'emsdk-cache'
+
+      # 3. Configure CMake using the Emscripten toolchain
+      - name: Configure CMake
+        shell: bash
+        working-directory: ${{ github.workspace }}/Native
+        run: |
+          emcmake cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      # 4. Build the project using the configured settings
+      - name: Build Library
+        shell: bash
+        working-directory: ${{ github.workspace }}/Native/build
+        run: |
+          cmake --build . --config Release
+
+      # 5. Create the output directory for the artifact
+      - name: Create Output Directory
+        shell: bash
+        run: |
+          mkdir -p runtimes/${{ matrix.rid }}/native
+
+      # 6. Copy the compiled WASM and JavaScript glue files
+      - name: Copy WASM Artifacts
+        shell: bash
+        run: |
+          cp "${{ github.workspace }}/Native/build/miniaudio.wasm" "runtimes/${{ matrix.rid }}/native/"
+          cp "${{ github.workspace }}/Native/build/miniaudio.js" "runtimes/${{ matrix.rid }}/native/"
+
+      # 7. Upload the artifact for this specific build
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: runtimes/${{ matrix.rid }}
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Download the artifact created by the build job.
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # 2. Package all downloaded artifacts into a single zip file.
+      - name: Create final package
+        run: |
+          mkdir -p runtimes
+          # The artifacts are downloaded into subdirectories named after them
+          # e.g., artifacts/wasm-browser/
+          cp -r artifacts/*/* runtimes/
+          zip -r wasm-library.zip runtimes
+
+      # 3. Upload the final combined package.
+      - name: Upload final package
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-library
+          path: wasm-library.zip

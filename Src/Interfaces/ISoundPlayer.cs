@@ -1,11 +1,11 @@
-using SoundFlow.Enums;
+﻿using SoundFlow.Enums;
 
 namespace SoundFlow.Interfaces;
 
 /// <summary>
 /// Defines the interface for a sound player component.
 /// </summary>
-public interface ISoundPlayer : IDisposable
+public interface ISoundPlayer
 {
     /// <summary>
     /// Gets the current playback state of the sound player.
@@ -22,12 +22,7 @@ public interface ISoundPlayer : IDisposable
     /// A value of 1.0 represents normal speed. Values greater than 1.0 increase the speed, and values less than 1.0 decrease it.
     /// </summary>
     /// <remarks>The current implementation uses linear interpolation which may affect the pitch.</remarks>
-     float PlaybackSpeed { get; set; }
-    
-    /// <summary>
-    /// Gets or sets the volume of the sound player
-    /// </summary>
-    float Volume { get; set; }
+    float PlaybackSpeed { get; set; }
 
     /// <summary>
     /// Gets the current playback time in seconds, relative to the beginning of the audio.

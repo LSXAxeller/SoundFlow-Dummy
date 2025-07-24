@@ -1,5 +1,4 @@
 ﻿using SoundFlow.Abstracts;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Modifiers;
 
@@ -17,16 +16,6 @@ public sealed class ParametricEqualizer : SoundModifier
     public List<EqualizerBand> Bands { get; private set; } = [];
 
     private readonly Dictionary<int, List<BiquadFilter>> _filtersPerChannel = [];
-    private readonly AudioFormat _format;
-
-    /// <summary>
-    /// Constructs a new instance of <see cref="ParametricEqualizer"/>.
-    /// </summary>
-    /// <param name="format">The audio format to process.</param>
-    public ParametricEqualizer(AudioFormat format)
-    {
-        _format = format; // Store the format
-    }
 
     /// <summary>
     /// Initializes the filters for each channel based on the current EQ bands.
@@ -34,13 +23,13 @@ public sealed class ParametricEqualizer : SoundModifier
     private void InitializeFilters()
     {
         _filtersPerChannel.Clear();
-        for (var channel = 0; channel < _format.Channels; channel++)
+        for (var channel = 0; channel < AudioEngine.Channels; channel++)
         {
             List<BiquadFilter> filters = [];
             foreach (var band in Bands)
             {
                 var filter = new BiquadFilter();
-                filter.UpdateCoefficients(band, _format.SampleRate);
+                filter.UpdateCoefficients(band, AudioEngine.Instance.SampleRate);
                 filters.Add(filter);
             }
 
@@ -49,11 +38,11 @@ public sealed class ParametricEqualizer : SoundModifier
     }
 
     /// <inheritdoc/>
-    public override void Process(Span<float> buffer, int channels)
+    public override void Process(Span<float> buffer)
     {
         for (var i = 0; i < buffer.Length; i++)
         {
-            var channel = i % _format.Channels;
+            var channel = i % AudioEngine.Channels;
             buffer[i] = ProcessSample(buffer[i], channel);
         }
     }
@@ -68,7 +57,7 @@ public sealed class ParametricEqualizer : SoundModifier
             foreach (var band in Bands)
             {
                 var filter = new BiquadFilter();
-                filter.UpdateCoefficients(band, _format.SampleRate);
+                filter.UpdateCoefficients(band, AudioEngine.Instance.SampleRate);
                 filters.Add(filter);
             }
 
@@ -86,7 +75,7 @@ public sealed class ParametricEqualizer : SoundModifier
     }
 
     /// <summary>
-    /// Adds multiple EQ bands to the equalizer and reinitialize the filters.
+    /// Adds multiple EQ bands to the equalizer and reinitializes the filters.
     /// </summary>
     /// <param name="bands">The EQ bands to add.</param>
     public void AddBands(IEnumerable<EqualizerBand> bands)
@@ -96,7 +85,7 @@ public sealed class ParametricEqualizer : SoundModifier
     }
 
     /// <summary>
-    /// Adds an EQ band to the equalizer and reinitialize the filters.
+    /// Adds an EQ band to the equalizer and reinitializes the filters.
     /// </summary>
     /// <param name="band">The EQ band to add.</param>
     public void AddBand(EqualizerBand band)
@@ -106,7 +95,7 @@ public sealed class ParametricEqualizer : SoundModifier
     }
 
     /// <summary>
-    /// Removes an EQ band from the equalizer and reinitialize the filters.
+    /// Removes an EQ band from the equalizer and reinitializes the filters.
     /// </summary>
     /// <param name="band">The EQ band to remove.</param>
     public void RemoveBand(EqualizerBand band)

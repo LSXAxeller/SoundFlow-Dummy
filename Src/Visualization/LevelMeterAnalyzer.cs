@@ -1,7 +1,6 @@
-using System.Numerics;
+﻿using System.Numerics;
 using SoundFlow.Abstracts;
 using SoundFlow.Interfaces;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Visualization;
 
@@ -16,9 +15,8 @@ public class LevelMeterAnalyzer : AudioAnalyzer
     /// <summary>
     /// Initializes a new instance of the <see cref="LevelMeterAnalyzer"/> class.
     /// </summary>
-    /// <param name="format">The audio format to analyze.</param>
     /// <param name="visualizer">The visualizer to send data to.</param>
-    public LevelMeterAnalyzer(AudioFormat format, IVisualizer? visualizer = null) : base(format, visualizer)
+    public LevelMeterAnalyzer(IVisualizer? visualizer = null) : base(visualizer)
     {
     }
 
@@ -33,7 +31,7 @@ public class LevelMeterAnalyzer : AudioAnalyzer
     public float Peak { get; private set; }
 
     /// <inheritdoc/>
-    protected override void Analyze(Span<float> buffer, int channels)
+    protected override void Analyze(Span<float> buffer)
     {
         var peak = 0f;
         var sumSquares = 0f;

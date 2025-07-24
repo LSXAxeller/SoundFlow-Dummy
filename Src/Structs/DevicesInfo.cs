@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace SoundFlow.Structs;
 
@@ -6,7 +6,7 @@ namespace SoundFlow.Structs;
 /// Represents device information including ID, name, default status, and data formats.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-public record struct DeviceInfo
+public struct DeviceInfo
 {
     /// <summary>
     /// The unique identifier for the device.

@@ -1,8 +1,7 @@
-using System.Numerics;
+﻿using System.Numerics;
 using SoundFlow.Abstracts;
 using SoundFlow.Interfaces;
 using SoundFlow.Modifiers;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Components;
 
@@ -11,7 +10,7 @@ namespace SoundFlow.Components;
 /// </summary>
 public sealed class SurroundPlayer : SoundPlayerBase
 {
-    private readonly LowPassModifier _lowPassFilter;
+    private readonly LowPassModifier _lowPassFilter = new(120f);
 
     /// <inheritdoc />
     public override string Name { get; set; } = "Surround Player";
@@ -143,12 +142,8 @@ public sealed class SurroundPlayer : SoundPlayerBase
     /// <summary>
     /// A sound player that simulates surround sound with support for different speaker configurations.
     /// </summary>
-    /// <param name="engine">The audio engine used for managing audio playback.</param>
-    /// <param name="format">The format of the audio stream, including sample rate, sample format, and channel count.</param>
-    /// <param name="dataProvider">The data provider that supplies audio data for playback.</param>
-    public SurroundPlayer(AudioEngine engine, AudioFormat format, ISoundDataProvider dataProvider) : base(engine, format, dataProvider)
+    public SurroundPlayer(ISoundDataProvider dataProvider) : base(dataProvider)
     {
-        _lowPassFilter = new LowPassModifier(format, 120f);
         InitializePredefinedConfigurations();
         SetSpeakerConfiguration(_speakerConfig);
     }
@@ -217,28 +212,29 @@ public sealed class SurroundPlayer : SoundPlayerBase
     private void InitializeDelayLines()
     {
         var numChannels = _currentConfiguration.SpeakerPositions.Length;
-        var maxDelaySamples = (int)(_currentConfiguration.Delays.Max() * Format.SampleRate / 1000f);
+        var maxDelaySamples = (int)(_currentConfiguration.Delays.Max() * AudioEngine.Instance.SampleRate / 1000f);
         _delayLines = new float[numChannels * (maxDelaySamples + 1)];
         _delayIndices = new int[numChannels];
     }
 
     /// <inheritdoc />
-    protected override void GenerateAudio(Span<float> output, int channels)
+    protected override void GenerateAudio(Span<float> output)
     {
-        base.GenerateAudio(output, channels);
-        ProcessSurroundAudio(output, channels);
+        base.GenerateAudio(output);
+        ProcessSurroundAudio(output);
     }
 
-    private void ProcessSurroundAudio(Span<float> buffer, int channels)
+    private void ProcessSurroundAudio(Span<float> buffer)
     {
-        UpdatePanningFactors(channels);
+        UpdatePanningFactors();
 
+        var channels = AudioEngine.Channels;
         var frameCount = buffer.Length / channels;
 
         for (var frame = 0; frame < frameCount; frame++)
         {
             // Assuming base audio is mono
-            // TODO: refactor when support for getting audio data is added (e.g., mono, stereo, 5.1 or 7.1, etc.)
+            // TODO: refactor when support for getting audio data is added
             var inputSample = buffer[frame * channels];
 
             // down-mixing stereo to mono
@@ -282,34 +278,34 @@ public sealed class SurroundPlayer : SoundPlayerBase
     }
 
     /// <inheritdoc />
-    protected override void HandleEndOfStream(Span<float> buffer, int channels)
+    protected override void HandleEndOfStream(Span<float> buffer)
     {
-        base.HandleEndOfStream(buffer, channels);
+        base.HandleEndOfStream(buffer);
         InitializeDelayLines(); // Re-initialize delay lines on loop or stop to avoid artifacts.
     }
 
 
-    private void UpdatePanningFactors(int channels)
+    private void UpdatePanningFactors()
     {
         switch (Panning)
         {
             case PanningMethod.Linear:
-                _panningFactors = CalculateLinearPanningFactors(channels);
+                _panningFactors = CalculateLinearPanningFactors();
                 break;
             case PanningMethod.EqualPower:
-                _panningFactors = CalculateEqualPowerPanningFactors(channels);
+                _panningFactors = CalculateEqualPowerPanningFactors();
                 break;
             case PanningMethod.Vbap:
             default:
-                RecalculateVbapPanningFactorsIfNecessary(channels);
+                RecalculateVbapPanningFactorsIfNecessary();
                 break;
         }
     }
 
-    private float[][] CalculateLinearPanningFactors(int channels)
+    private float[][] CalculateLinearPanningFactors()
     {
         var numVirtualSpeakers = _currentConfiguration.SpeakerPositions.Length;
-        var numOutputChannels = channels;
+        var numOutputChannels = AudioEngine.Channels;
         var factors = new float[numVirtualSpeakers][];
 
         // Get physical output speaker positions
@@ -343,10 +339,10 @@ public sealed class SurroundPlayer : SoundPlayerBase
         return factors;
     }
 
-    private float[][] CalculateEqualPowerPanningFactors(int channels)
+    private float[][] CalculateEqualPowerPanningFactors()
     {
         var numSpeakers = _currentConfiguration.SpeakerPositions.Length;
-        var numOutputChannels = channels;
+        var numOutputChannels = AudioEngine.Channels;
         var factors = new float[numSpeakers][];
 
         var outputSpeakers = GetOutputSpeakerLayout(numOutputChannels);
@@ -382,22 +378,22 @@ public sealed class SurroundPlayer : SoundPlayerBase
         return factors;
     }
 
-    private void RecalculateVbapPanningFactorsIfNecessary(int channels)
+    private void RecalculateVbapPanningFactorsIfNecessary()
     {
         if (!_vbapPanningFactorsDirty)
             return;
-        _panningFactors = CalculateVbapPanningFactors(channels);
+        _panningFactors = CalculateVbapPanningFactors();
         _vbapPanningFactorsDirty = false;
     }
 
-    private float[][] CalculateVbapPanningFactors(int channels)
+    private float[][] CalculateVbapPanningFactors()
     {
         var numVirtualSpeakers = _currentConfiguration.SpeakerPositions.Length;
-        var numOutputChannels = channels;
+        var numOutputChannels = AudioEngine.Channels;
         var factors = new float[numVirtualSpeakers][];
 
         // Get output speaker positions (base positions on current channel count)
-        var outputSpeakerPositions = GetOutputSpeakerLayout(channels);
+        var outputSpeakerPositions = GetOutputSpeakerLayout(AudioEngine.Channels);
 
         for (var vsIdx = 0; vsIdx < numVirtualSpeakers; vsIdx++)
         {
@@ -547,7 +543,7 @@ public sealed class SurroundPlayer : SoundPlayerBase
 
     private float ApplyDelayAndVolume(float sample, float volume, float delayMs, int speakerIndex)
     {
-        var delaySamples = (int)(delayMs * Format.SampleRate / 1000f);
+        var delaySamples = (int)(delayMs * AudioEngine.Instance.SampleRate / 1000f);
 
         var delayIndex = (_delayIndices[speakerIndex] - delaySamples + _delayLines.Length) % _delayLines.Length;
         var delayedSample = _delayLines[delayIndex];

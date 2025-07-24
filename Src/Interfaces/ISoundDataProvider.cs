@@ -5,7 +5,7 @@ namespace SoundFlow.Interfaces;
 /// <summary>
 ///     Interface for a sound data provider.
 /// </summary>
-public interface ISoundDataProvider : IDisposable
+public interface ISoundDataProvider
 {
     /// <summary>
     ///     Gets the current playback position in samples.
@@ -31,12 +31,7 @@ public interface ISoundDataProvider : IDisposable
     /// <summary>
     ///     Gets or sets the target sample rate of the audio data.
     /// </summary>
-    int SampleRate { get; }
-    
-    /// <summary>
-    ///     Gets a value indicating whether the data source has been disposed.
-    /// </summary>
-    bool IsDisposed { get; }
+    int? SampleRate { get; set; }
 
     /// <summary>
     ///     Reads the specified number of audio bytes into the given buffer asynchronously.

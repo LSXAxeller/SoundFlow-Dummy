@@ -1,8 +1,7 @@
-using SoundFlow.Abstracts;
+﻿using SoundFlow.Abstracts;
 using SoundFlow.Utils;
 using System.Numerics;
 using SoundFlow.Interfaces;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Visualization
 {
@@ -22,11 +21,10 @@ namespace SoundFlow.Visualization
         /// <summary>
         /// Initializes a new instance of the <see cref="SpectrumAnalyzer"/> class.
         /// </summary>
-        /// <param name="format">The audio format to analyze.</param>
         /// <param name="fftSize">The size of the FFT. Must be a power of 2.</param>
         /// <param name="visualizer">The visualizer to send data to.</param>
         /// <exception cref="ArgumentException"></exception>
-        public SpectrumAnalyzer(AudioFormat format, int fftSize, IVisualizer? visualizer = null) : base(format, visualizer)
+        public SpectrumAnalyzer(int fftSize, IVisualizer? visualizer = null) : base(visualizer)
         {
             if ((fftSize & (fftSize - 1)) != 0) // Check if fftSize is a power of 2
             {
@@ -45,7 +43,7 @@ namespace SoundFlow.Visualization
         public ReadOnlySpan<float> SpectrumData => _spectrumData;
 
         /// <inheritdoc/>
-        protected override void Analyze(Span<float> buffer, int channels)
+        protected override void Analyze(Span<float> buffer)
         {
             // Apply window function and copy to FFT buffer
             var numSamples = Math.Min(buffer.Length, _fftSize);

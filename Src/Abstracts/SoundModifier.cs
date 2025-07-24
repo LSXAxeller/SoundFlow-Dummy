@@ -20,14 +20,11 @@ public abstract class SoundModifier
     /// Applies the modifier to a buffer of audio samples.
     /// </summary>
     /// <param name="buffer">The buffer containing the audio samples to modify.</param>
-    /// <param name="channels">The number of channels in the buffer.</param>
-    public virtual void Process(Span<float> buffer, int channels)
+    public virtual void Process(Span<float> buffer)
     {
-        if (!Enabled) return;
-        
         for (var i = 0; i < buffer.Length; i++)
         {
-            buffer[i] = ProcessSample(buffer[i], i % channels);
+            buffer[i] = ProcessSample(buffer[i], i % AudioEngine.Channels);
         }
     }
 

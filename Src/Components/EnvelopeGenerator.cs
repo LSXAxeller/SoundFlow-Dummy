@@ -1,5 +1,4 @@
-using SoundFlow.Abstracts;
-using SoundFlow.Structs;
+﻿using SoundFlow.Abstracts;
 
 namespace SoundFlow.Components;
 
@@ -62,13 +61,6 @@ public class EnvelopeGenerator : SoundComponent
         /// </summary>
         Trigger // Instant Attack and Decay, no Sustain
     }
-    
-    /// <summary>
-    /// Initializes a new instance of the <see cref="EnvelopeGenerator"/> class.
-    /// </summary>
-    /// <param name="engine">The parent audio engine.</param>
-    /// <param name="format">The audio format containing channels and sample rate and sample format</param>
-    public EnvelopeGenerator(AudioEngine engine, AudioFormat format) : base(engine, format) { }
 
     /// <summary>
     /// Gets or sets the attack time in seconds.
@@ -129,10 +121,12 @@ public class EnvelopeGenerator : SoundComponent
     /// </summary>
     public void TriggerOn()
     {
-        if (!Retrigger && _currentState != EnvelopeState.Idle) return;
-        _currentState = EnvelopeState.Attack;
-        _currentLevel = 0f;
-        CalculateRates();
+        if (Retrigger || _currentState == EnvelopeState.Idle)
+        {
+            _currentState = EnvelopeState.Attack;
+            _currentLevel = 0f; // Or start from the current level if retriggering during release, Idk
+            CalculateRates();
+        }
     }
 
     /// <summary>
@@ -142,9 +136,11 @@ public class EnvelopeGenerator : SoundComponent
     /// </summary>
     public void TriggerOff()
     {
-        if (_currentState == EnvelopeState.Idle || Trigger != TriggerMode.Gate) return;
-        _currentState = EnvelopeState.Release;
-        CalculateRates();
+        if (_currentState != EnvelopeState.Idle && Trigger == TriggerMode.Gate)
+        {
+            _currentState = EnvelopeState.Release;
+            CalculateRates();
+        }
     }
 
     /// <summary>
@@ -154,17 +150,17 @@ public class EnvelopeGenerator : SoundComponent
     private void CalculateRates()
     {
         // Calculate rates per sample for each stage
-        _attackRate = AttackTime > 0 ? 1f / (AttackTime * Format.SampleRate) : float.MaxValue;
+        _attackRate = AttackTime > 0 ? 1f / (AttackTime * AudioEngine.Instance.SampleRate) : float.MaxValue;
         _decayRate = DecayTime > 0
-            ? (1f - SustainLevel) / (DecayTime * Format.SampleRate)
+            ? (1f - SustainLevel) / (DecayTime * AudioEngine.Instance.SampleRate)
             : float.MaxValue;
         _releaseRate = ReleaseTime > 0
-            ? _currentLevel / (ReleaseTime * Format.SampleRate)
+            ? _currentLevel / (ReleaseTime * AudioEngine.Instance.SampleRate)
             : float.MaxValue;
     }
 
     /// <inheritdoc/>
-    protected override void GenerateAudio(Span<float> buffer, int channels)
+    protected override void GenerateAudio(Span<float> buffer)
     {
         for (var i = 0; i < buffer.Length; i++)
         {

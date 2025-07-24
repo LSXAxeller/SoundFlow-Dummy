@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using SoundFlow.Interfaces;
 
 namespace SoundFlow.Visualization;

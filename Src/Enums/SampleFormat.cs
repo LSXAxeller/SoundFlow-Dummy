@@ -1,4 +1,4 @@
-namespace SoundFlow.Enums;
+﻿namespace SoundFlow.Enums;
 
 /// <summary>
 /// Enum for sample formats.

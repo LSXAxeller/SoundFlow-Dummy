@@ -1,11 +1,8 @@
-namespace SoundFlow.Enums;
+﻿namespace SoundFlow.Enums;
 
 /// <summary>
 ///     Supported audio encoding formats.
 /// </summary>
-/// <remarks>
-///     Current backend (miniaudio) supports only Wav for encoding.
-/// </remarks>
 public enum EncodingFormat
 {
     /// <summary>

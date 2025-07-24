@@ -1,7 +1,6 @@
-using System.Collections.Concurrent;
+using System.Numerics;
+using System.Runtime.CompilerServices;
 using SoundFlow.Abstracts;
-using SoundFlow.Abstracts.Devices;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Components;
 
@@ -10,50 +9,16 @@ namespace SoundFlow.Components;
 /// </summary>
 public sealed class Mixer : SoundComponent
 {
-    private readonly ConcurrentDictionary<SoundComponent, byte> _components = new();
-    
-    private readonly object _modificationLock = new();
-    
-    private volatile bool _isDisposed;
+    private readonly List<SoundComponent> _components = [];
+    private readonly object _lock = new();
 
     /// <summary>
-    /// Gets the playback device this mixer is the master for, if any.
+    ///     Gets the master mixer, representing the final output of the audio graph.
     /// </summary>
-    public AudioPlaybackDevice? ParentDevice { get; internal set; }
-
-    /// <summary>
-    /// Gets a value indicating whether this is a master mixer for a device.
-    /// </summary>
-    public bool IsMasterMixer { get; }
-    
-    /// <summary>
-    /// Gets the list of sound components in the mixer.
-    /// </summary>
-    public IReadOnlyCollection<SoundComponent> Components
-    {
-        get
-        {
-            lock (_modificationLock)
-            {
-                return _components.Keys.ToArray();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Mixer"/> class.
-    /// </summary>
-    /// <param name="engine">The audio engine instance.</param>
-    /// <param name="format">The audio format containing channels and sample rate and sample format</param>
-    /// <param name="isMasterMixer">Indicates if this is a master mixer for a device.</param>
-    public Mixer(AudioEngine engine, AudioFormat format, bool isMasterMixer = false) : base(engine, format)
-    {
-        IsMasterMixer = isMasterMixer;
-        Name = isMasterMixer ? "Master Mixer" : "Mixer";
-    }
+    public static Mixer Master { get; } = new();
 
     /// <inheritdoc />
-    public override string Name { get; set; }
+    public override string Name { get; set; } = "Mixer";
 
     /// <summary>
     ///     Adds a sound component to the mixer.
@@ -63,20 +28,20 @@ public sealed class Mixer : SoundComponent
     ///     Thrown if the component is the mixer itself or if adding the component would create
     ///     a cycle in the graph.
     /// </exception>
-    /// <exception cref="ObjectDisposedException">Thrown if the mixer has been disposed.</exception>
     public void AddComponent(SoundComponent component)
     {
-        ObjectDisposedException.ThrowIf(_isDisposed, this);
-        ArgumentNullException.ThrowIfNull(component);
+        if (component == this) throw new ArgumentException("Cannot add a mixer to itself.", nameof(component));
 
-        lock (_modificationLock)
+        // Check for cycles
+        if (WouldCreateCycle(component))
+            throw new ArgumentException("Adding this component would create a cycle in the audio graph.",
+                nameof(component));
+
+        lock (_lock)
         {
-            if (WouldCreateCycle(component))
-                throw new ArgumentException("Adding this component would create a cycle in the audio graph.",
-                    nameof(component));
-
-            if (_components.TryAdd(component, 0))
-                component.Parent = this;
+            if (_components.Contains(component)) return;
+            _components.Add(component);
+            component.Parent = this;
         }
     }
 
@@ -105,58 +70,23 @@ public sealed class Mixer : SoundComponent
     /// <param name="component">The sound component to remove.</param>
     public void RemoveComponent(SoundComponent component)
     {
-        if (_isDisposed || component == null!)
-            return;
-
-        lock (_modificationLock)
+        lock (_lock)
         {
-            if (_components.TryRemove(component, out _))
+            if (_components.Remove(component))
                 component.Parent = null;
         }
     }
 
     /// <inheritdoc />
-    protected override void GenerateAudio(Span<float> buffer, int channels)
+    protected override void GenerateAudio(Span<float> buffer)
     {
-        if (!Enabled || Mute || _isDisposed)
-            return;
+        if (!Enabled || Mute) return;
 
-        lock (_modificationLock)
+        lock (_lock)
         {
-            foreach (var component in _components.Keys)
-            { 
-                if (component is { Enabled: true, Mute: false }) 
-                    component.Process(buffer, channels);
-
-            }
+            foreach (var component in _components)
+                if (component is { Enabled: true, Mute: false })
+                    component.Process(buffer);
         }
-    }
-
-    /// <summary>
-    ///     Disposes the mixer and all its components.
-    /// </summary>
-    /// <remarks>
-    ///     After disposal, the mixer cannot be used anymore.
-    ///     All components will be removed and disposable components will be disposed.
-    /// </remarks>
-    public override void Dispose()
-    {
-        if (_isDisposed)
-            return;
-
-        _isDisposed = true;
-        
-        lock (_modificationLock)
-        {
-            foreach (var component in _components.Keys)
-            {
-                component.Parent = null;
-                if (component is IDisposable disposable)
-                    disposable.Dispose();
-            }
-            _components.Clear();
-        }
-        
-        base.Dispose();
     }
 }

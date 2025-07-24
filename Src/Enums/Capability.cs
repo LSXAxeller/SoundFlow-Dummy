@@ -1,4 +1,4 @@
-namespace SoundFlow.Enums;
+﻿namespace SoundFlow.Enums;
 
 /// <summary>
 ///     Describes the capabilities of a sound device.
