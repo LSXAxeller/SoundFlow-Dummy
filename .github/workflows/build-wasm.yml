@@ -44,21 +44,29 @@ jobs:
         working-directory: ${{ github.workspace }}/Native/build
         run: |
           cmake --build . --config Release
+          
+      # 5. List all outputs in the build directory
+      - name: List Build Outputs
+        shell: bash
+        working-directory: ${{ github.workspace }}/Native/build
+        run: |
+          echo "Listing contents of ${{ github.workspace }}/Native/build/:"
+          ls -laR .
 
-      # 5. Create the output directory for the artifact
+      # 6. Create the output directory for the artifact
       - name: Create Output Directory
         shell: bash
         run: |
           mkdir -p runtimes/${{ matrix.rid }}/native
 
-      # 6. Copy the compiled WASM and JavaScript glue files
+      # 7. Copy the compiled WASM and JavaScript glue files
       - name: Copy WASM Artifacts
         shell: bash
         run: |
-          echo "Contents of Native/build/ after build:"
-          find "${{ github.workspace }}/Native/build/" -maxdepth 1 -type f -exec cp {} "runtimes/${{ matrix.rid }}/native/" \;
+          cp "${{ github.workspace }}/Native/build/"*.wasm "runtimes/${{ matrix.rid }}/native/"
+          cp "${{ github.workspace }}/Native/build/"*.js "runtimes/${{ matrix.rid }}/native/"
 
-      # 7. Upload the artifact for this specific build
+      # 8. Upload the artifact for this specific build
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
