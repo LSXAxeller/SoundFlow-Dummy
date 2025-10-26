@@ -68,91 +68,82 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake file binutils lsb-release
           
-          # Install Docker for ARM builds
-          if [ "${{ matrix.arch }}" == "aarch64" ] || [ "${{ matrix.arch }}" == "arm" ]; then
-            sudo apt-get install -y docker.io
-            sudo usermod -aG docker $USER || true
-          else
-            # For native x86_64 build
+          # For native x86_64 build only
+          if [ "${{ matrix.arch }}" == "x86_64" ]; then
             sudo apt-get install -y libasound2-dev
           fi
 
       - name: Build ARM libraries with Docker
         if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
         run: |
-          # Use sudo for Docker commands in CI
+          # Determine the Docker image based on architecture
           if [ "${{ matrix.arch }}" == "aarch64" ]; then
-            DOCKER_ARCH="arm64v8"
+            DOCKER_IMAGE="arm64v8/ubuntu:22.04"
           elif [ "${{ matrix.arch }}" == "arm" ]; then
-            DOCKER_ARCH="arm32v7"
+            DOCKER_IMAGE="arm32v7/ubuntu:22.04"
           fi
           
-          sudo docker run --rm -v $PWD:/workspace $DOCKER_ARCH/ubuntu:22.04 /bin/bash -c "
+          docker run --rm -v $PWD:/workspace $DOCKER_IMAGE /bin/bash -c "
+            # Update and install dependencies
             apt-get update
             apt-get install -y build-essential cmake libasound2-dev
+          
+            # Build PortMidi
             cd /workspace/Native/portmidi
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
+            cmake -S . -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DBUILD_PORTMIDI_TESTS=OFF
             cmake --build build --config Release --parallel
           "
           
+          # Copy the built library to the artifact directory
           mkdir -p runtimes/${{ matrix.rid }}/native
           cp Native/portmidi/build/libportmidi.so runtimes/${{ matrix.rid }}/native/
 
-      - name: Configure CMake (Non-ARM Linux)
-        if: runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm'
+      - name: Configure and Build Native (Non-ARM Linux)
+        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
         shell: bash
         working-directory: Native/portmidi
         run: |
-          CMAKE_FLAGS="-DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF"
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PORTMIDI_TESTS=OFF
+          cmake --build build --config Release --parallel
+          
+          mkdir -p ../../runtimes/${{ matrix.rid }}/native
+          cp build/libportmidi.so ../../runtimes/${{ matrix.rid }}/native/
 
-      - name: Configure CMake (Windows)
+      - name: Configure and Build (Windows)
         if: runner.os == 'Windows'
         shell: bash
         working-directory: Native/portmidi
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_target_arch }} -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
+          cmake -S . -B build \
+            -G "Visual Studio 17 2022" \
+            -A ${{ matrix.cmake_target_arch }} \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PORTMIDI_TESTS=OFF
+          cmake --build build --config Release --parallel
+          
+          mkdir -p ../../runtimes/${{ matrix.rid }}/native
+          cp build/Release/portmidi.dll ../../runtimes/${{ matrix.rid }}/native/
 
-      - name: Configure CMake (macOS)
+      - name: Configure and Build (macOS)
         if: runner.os == 'macOS'
         shell: bash
         working-directory: Native/portmidi
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
-
-      - name: Build with CMake (Non-ARM Linux)
-        if: runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm'
-        working-directory: Native/portmidi
-        run: cmake --build build --config Release --parallel
-
-      - name: Build with CMake (Windows)
-        if: runner.os == 'Windows'
-        working-directory: Native/portmidi
-        run: cmake --build build --config Release --parallel
-
-      - name: Build with CMake (macOS)
-        if: runner.os == 'macOS'
-        working-directory: Native/portmidi
-        run: cmake --build build --config Release --parallel
-
-      - name: Prepare Artifact Directory (Non-ARM)
-        if: runner.os != 'Linux' || (runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm')
-        run: mkdir -p runtimes/${{ matrix.rid }}/native
-
-      - name: Copy Library for Artifact (Non-ARM Linux)
-        if: runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm'
-        shell: bash
-        run: |
-          cp "Native/portmidi/build/libportmidi.so" "runtimes/${{ matrix.rid }}/native/"
-
-      - name: Copy Library for Artifact
-        shell: bash
-        run: |
-          if [ "${{ runner.os }}" == "Windows" ]; then
-            cp "Native/portmidi/build/Release/portmidi.dll" "runtimes/${{ matrix.rid }}/native/"
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            cp "Native/portmidi/build/libportmidi.dylib" "runtimes/${{ matrix.rid }}/native/"
-          fi
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PORTMIDI_TESTS=OFF
+          cmake --build build --config Release --parallel
+          
+          mkdir -p ../../runtimes/${{ matrix.rid }}/native
+          cp build/libportmidi.dylib ../../runtimes/${{ matrix.rid }}/native/
 
       - name: Setup MSVC developer environment (Windows)
         if: runner.os == 'Windows'
@@ -172,18 +163,20 @@ jobs:
           echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
           otool -L runtimes/${{ matrix.rid }}/native/libportmidi.dylib
 
-      - name: Analyze Dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Analyze Dependencies (Linux x86_64)
+        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
         shell: bash
         run: |
           echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
-          LIB_PATH="runtimes/${{ matrix.rid }}/native/libportmidi.so"
-          if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            ldd "$LIB_PATH"
-          else
-            # ldd doesn't work for cross-compiled binaries, so use readelf
-            readelf -d "$LIB_PATH" | grep "NEEDED"
-          fi
+          ldd "runtimes/${{ matrix.rid }}/native/libportmidi.so"
+
+      - name: Analyze Dependencies (Linux ARM)
+        if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
+        shell: bash
+        run: |
+          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
+          # For cross-compiled binaries, use readelf instead of ldd
+          readelf -d "runtimes/${{ matrix.rid }}/native/libportmidi.so" | grep "NEEDED"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
