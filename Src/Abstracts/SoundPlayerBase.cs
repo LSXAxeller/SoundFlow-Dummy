@@ -1,3 +1,4 @@
+using SoundFlow.Components;
 using SoundFlow.Enums;
 using SoundFlow.Interfaces;
 using SoundFlow.Structs;
@@ -17,7 +18,6 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     private float _playbackSpeed = 1.0f;
     private int _loopStartSamples;
     private int _loopEndSamples = -1;
-    private bool _loopingSeekPending;
     private readonly WsolaTimeStretcher _timeStretcher;
     private readonly float[] _timeStretcherInputBuffer;
     private int _timeStretcherInputBufferValidSamples;
@@ -102,16 +102,35 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
             output.Clear();
             return;
         }
+        
+        // Proactively check for looping before generating audio. This handles loops where a specific end point is set.
+        if (IsLooping && _loopEndSamples != -1)
+        {
+            // Ensure loop is valid and we've reached or passed the end point.
+            if (_loopStartSamples < _loopEndSamples && _rawSamplePosition >= _loopEndSamples)
+                Seek(_loopStartSamples, channels);
+        }
 
         // Directly read from provider when playback speed is 1.0
         if (Math.Abs(_playbackSpeed - 1.0f) < 0.001f)
         {
-            var samplesRead = _dataProvider.ReadBytes(output);
-            _rawSamplePosition += samplesRead;
-
-            if (samplesRead < output.Length)
+            var outputSlice = output;
+            
+            // Loop until the output buffer is full or the stream truly ends.
+            while (!outputSlice.IsEmpty)
             {
-                HandleEndOfStream(output[samplesRead..], channels);
+                var samplesReadThisCall = _dataProvider.ReadBytes(outputSlice);
+                
+                // A return value of 0 is the ONLY reliable end-of-stream signal.
+                if (samplesReadThisCall == 0)
+                {
+                    // The data provider is exhausted. Handle the end of stream for the remaining part of the buffer.
+                    HandleEndOfStream(outputSlice, channels);
+                    break; // Exit the read loop
+                }
+
+                _rawSamplePosition += samplesReadThisCall;
+                outputSlice = outputSlice.Slice(samplesReadThisCall);
             }
             return;
         }
@@ -119,12 +138,6 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
         // Ensure time stretcher has correct channel count.
         if (_timeStretcher.GetTargetSpeed() == 0f && _playbackSpeed != 0f && channels > 0)
             _timeStretcher.SetChannels(channels);
-
-        if (channels == 0)
-        {
-            output.Clear();
-            return;
-        }
 
         var outputFramesTotal = output.Length / channels;
         var outputBufferOffset = 0;
@@ -142,7 +155,7 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
                 var sourceSamplesForFill = FillResampleBuffer(samplesRequiredInBufferForInterpolation, channels);
                 totalSourceSamplesAdvancedThisCall += sourceSamplesForFill;
 
-                // If still not enough data after filling, end of stream.
+                // If still not enough data after filling and the provider is truly exhausted and can't provide more data, end of stream.
                 if (_resampleBufferValidSamples < samplesRequiredInBufferForInterpolation)
                 {
                     _rawSamplePosition += totalSourceSamplesAdvancedThisCall;
@@ -162,23 +175,16 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
                 if (sampleIndex1 >= _resampleBufferValidSamples)
                 {
                     // If next sample is out of bounds, use current or 0.
-                    output[outputBufferOffset + ch] =
-                        (sampleIndex0 < _resampleBufferValidSamples && sampleIndex0 >= 0)
-                            ? _resampleBuffer[sampleIndex0]
-                            : 0f;
+                    output[outputBufferOffset + ch] = (sampleIndex0 < _resampleBufferValidSamples && sampleIndex0 >= 0) ? _resampleBuffer[sampleIndex0] : 0f;
                     continue;
                 }
-
- 		        // If current sample is out of bounds, use 0.
                 if (sampleIndex0 < 0)
                 {
                     output[outputBufferOffset + ch] = 0f;
                     continue;
                 }
-
                 // Interpolate sample value.
-                output[outputBufferOffset + ch] =
-                    _resampleBuffer[sampleIndex0] * (1.0f - t) + _resampleBuffer[sampleIndex1] * t;
+                output[outputBufferOffset + ch] = _resampleBuffer[sampleIndex0] * (1.0f - t) + _resampleBuffer[sampleIndex1] * t;
             }
 
             outputBufferOffset += channels;
@@ -189,18 +195,14 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
             if (framesConsumedFromResampleBuffer > 0)
             {
                 var samplesConsumedFromResampleBuf = framesConsumedFromResampleBuffer * channels;
-
                 var actualDiscard = Math.Min(samplesConsumedFromResampleBuf, _resampleBufferValidSamples);
                 if (actualDiscard > 0)
                 {
                     var remaining = _resampleBufferValidSamples - actualDiscard;
-                    if (remaining > 0)
-                        // Shift remaining samples to the beginning.
-                        Buffer.BlockCopy(_resampleBuffer, actualDiscard * sizeof(float), _resampleBuffer, 0,
-                            remaining * sizeof(float));
+                    if (remaining > 0) // Shift remaining samples to the beginning.
+                        Buffer.BlockCopy(_resampleBuffer, actualDiscard * sizeof(float), _resampleBuffer, 0, remaining * sizeof(float));
                     _resampleBufferValidSamples = remaining;
                 }
-
                 _currentFractionalFrame -= framesConsumedFromResampleBuffer;
             }
         }
@@ -226,13 +228,27 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
             Array.Resize(ref _resampleBuffer,
                 Math.Max(minSamplesRequiredInOutputBuffer, _resampleBuffer.Length * 2));
         }
-        
-        // When playback speed is close to 1.0, use simpler interpolation
+
+        // When playback speed is close to 1.0, use simpler interpolation.
         if (Math.Abs(_playbackSpeed - 1.0f) < 0.1f)
         {
-            var directRead = _dataProvider.ReadBytes(_resampleBuffer.AsSpan(_resampleBufferValidSamples));
-            _resampleBufferValidSamples += directRead;
-            return directRead;
+            // Implement a persistent read loop instead of a single read call.
+            var totalDirectRead = 0;
+            var directReadSlice = _resampleBuffer.AsSpan(_resampleBufferValidSamples);
+
+            while (!directReadSlice.IsEmpty)
+            {
+                var readThisCall = _dataProvider.ReadBytes(directReadSlice);
+                if (readThisCall == 0)
+                {
+                    break; // True end of stream.
+                }
+                totalDirectRead += readThisCall;
+                directReadSlice = directReadSlice.Slice(readThisCall);
+            }
+
+            _resampleBufferValidSamples += totalDirectRead;
+            return totalDirectRead;
         }
 
         var totalSourceSamplesRepresented = 0;
@@ -245,10 +261,12 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
 
             var availableInStretcherInput =
                 _timeStretcherInputBufferValidSamples - _timeStretcherInputBufferReadOffset;
-            var providerHasMoreData = _dataProvider.Position < _dataProvider.Length || _dataProvider.Length == -1; // -1 = unknown length or infinite stream
 
-            // If time stretcher input buffer needs more data and provider has it.
-            if (availableInStretcherInput < _timeStretcher.MinInputSamplesToProcess && providerHasMoreData)
+            // Use a flag to track the true end of the data provider.
+            var providerExhausted = false;
+
+            // If time stretcher input buffer needs more data.
+            if (availableInStretcherInput < _timeStretcher.MinInputSamplesToProcess)
             {
                 // Compact the buffer by moving the remaining valid samples to the start if we have a read offset.
                 if (_timeStretcherInputBufferReadOffset > 0)
@@ -275,12 +293,23 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
                 var spaceToReadIntoInput = _timeStretcherInputBuffer.Length - _timeStretcherInputBufferValidSamples;
                 if (spaceToReadIntoInput > 0)
                 {
-                    var readFromProvider = _dataProvider.ReadBytes(_timeStretcherInputBuffer.AsSpan(_timeStretcherInputBufferValidSamples, spaceToReadIntoInput));
-                    _timeStretcherInputBufferValidSamples += readFromProvider;
-                    
-                    // After reading, the available samples have increased. We must recalculate it for the current loop iteration.
+                    // Use a persistent read loop to fill the available space.
+                    var targetSpan = _timeStretcherInputBuffer.AsSpan(_timeStretcherInputBufferValidSamples, spaceToReadIntoInput);
+                    var totalReadFromProvider = 0;
+                    while (!targetSpan.IsEmpty)
+                    {
+                        var readThisCall = _dataProvider.ReadBytes(targetSpan);
+                        if (readThisCall == 0)
+                        {
+                            providerExhausted = true; // True end of stream signaled.
+                            break;
+                        }
+                        totalReadFromProvider += readThisCall;
+                        targetSpan = targetSpan.Slice(readThisCall);
+                    }
+
+                    _timeStretcherInputBufferValidSamples += totalReadFromProvider;
                     availableInStretcherInput = _timeStretcherInputBufferValidSamples - _timeStretcherInputBufferReadOffset;
-                    providerHasMoreData = _dataProvider.Position < _dataProvider.Length;
                 }
             }
 
@@ -297,49 +326,34 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
             int samplesWrittenToResample, samplesConsumedFromStretcherInputBuf, sourceSamplesForThisProcessCall;
 
             // Determine how to call the time stretcher (Process or Flush).
-            if (inputSpanForStretcher.IsEmpty && !providerHasMoreData && !_loopingSeekPending)
+            if (inputSpanForStretcher.IsEmpty && providerExhausted)
             {
+                // If the input buffer for the stretcher is empty AND we know the provider is exhausted, flush the stretcher.
                 samplesWrittenToResample = _timeStretcher.Flush(outputSpanForStretcher);
                 samplesConsumedFromStretcherInputBuf = 0;
                 sourceSamplesForThisProcessCall = 0;
             }
-            else if (availableInStretcherInput >= _timeStretcher.MinInputSamplesToProcess ||
-                     (inputSpanForStretcher.IsEmpty && providerHasMoreData && !_loopingSeekPending))
+            else if (availableInStretcherInput >= _timeStretcher.MinInputSamplesToProcess)
             {
- 		        // if input is empty but provider has more data, try to process what's already buffered.
+                // If there's enough input, process it.
                 samplesWrittenToResample = _timeStretcher.Process(inputSpanForStretcher, outputSpanForStretcher,
                     out samplesConsumedFromStretcherInputBuf,
                     out sourceSamplesForThisProcessCall);
             }
-            else if (_loopingSeekPending)
-            {
-                break;
-            }
             else
             {
-                break; // Not enough input and not flushing.
+                break; // Not enough input to process, and the provider is not yet exhausted.
             }
 
             // Update read offset and valid samples for time stretcher input buffer.
-            if (samplesConsumedFromStretcherInputBuf > 0)
-            {
-                _timeStretcherInputBufferReadOffset += samplesConsumedFromStretcherInputBuf;
-            }
+            if (samplesConsumedFromStretcherInputBuf > 0) _timeStretcherInputBufferReadOffset += samplesConsumedFromStretcherInputBuf;
 
             // Update resample buffer valid samples and total source samples advanced.
             _resampleBufferValidSamples += samplesWrittenToResample;
             totalSourceSamplesRepresented += sourceSamplesForThisProcessCall;
 
             // Break if no progress was made and no more data is expected.
-            if (samplesWrittenToResample == 0 && samplesConsumedFromStretcherInputBuf == 0 &&
-                !providerHasMoreData && !_loopingSeekPending)
-            {
-                if (availableInStretcherInput ==
-                    (_timeStretcherInputBufferValidSamples - _timeStretcherInputBufferReadOffset))
-                {
-                    break;
-                }
-            }
+            if (samplesWrittenToResample == 0 && samplesConsumedFromStretcherInputBuf == 0 && providerExhausted) break;
         }
 
         return totalSourceSamplesRepresented;
@@ -347,12 +361,13 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
 
     /// <summary>
     /// Handles the end-of-stream condition, including looping and stopping.
+    /// This is called when the data provider is fully exhausted (ReadBytes returns 0).
     /// </summary>
     /// <param name="remainingOutputBuffer">The buffer for remaining output.</param>
     /// <param name="channels">The number of channels.</param>
     protected virtual void HandleEndOfStream(Span<float> remainingOutputBuffer, int channels)
     {
-        // For live streams with unknown length, don't treat buffer underflow as end-of-stream
+        // Not looping, and it's a file with a known length. This is the definitive end.
         if (!IsLooping && _dataProvider.Length > 0)
         {
             // Original end-of-stream handling
@@ -394,21 +409,27 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
             State = PlaybackState.Stopped;
             OnPlaybackEnded();
         }
+        // Looping is enabled.
         else if (IsLooping)
         {
-            // Original looping handling
             var targetLoopStart = Math.Max(0, _loopStartSamples);
             var actualLoopEnd = (_loopEndSamples == -1)
                 ? _dataProvider.Length
                 : Math.Min(_loopEndSamples, _dataProvider.Length);
 
+            // Check if the loop is valid (start < end, and start is within bounds).
             if (targetLoopStart < actualLoopEnd && targetLoopStart < _dataProvider.Length)
             {
-                _loopingSeekPending = true;
                 Seek(targetLoopStart, channels);
-                _loopingSeekPending = false;
                 if (!remainingOutputBuffer.IsEmpty)
                     GenerateAudio(remainingOutputBuffer, channels);
+            }
+            else
+            {
+                // Loop is not valid (e.g., start >= end), so treat as a normal end-of-stream.
+                State = PlaybackState.Stopped;
+                OnPlaybackEnded();
+                remainingOutputBuffer.Clear();
             }
         }
         // For live streams (Length <= 0), just clear the buffer and continue
@@ -417,7 +438,7 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
             remainingOutputBuffer.Clear();
         }
     }
-
+    
     /// <summary>
     /// Invokes the PlaybackEnded event.
     /// </summary>
@@ -622,7 +643,7 @@ public abstract class SoundPlayerBase : SoundComponent, ISoundPlayer
     }
 
     /// <inheritdoc />
-    public void Dispose()
+    public override void Dispose()
     {
         if (IsDisposed) return;
         Dispose(true);

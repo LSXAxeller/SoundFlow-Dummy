@@ -203,6 +203,9 @@ internal static unsafe partial class Native
     [LibraryImport(LibraryName, EntryPoint = "ma_context_uninit")]
     public static partial void ContextUninit(nint context);
 
+    [LibraryImport(LibraryName, EntryPoint = "sf_context_get_backend")]
+    public static partial MiniAudioBackend ContextGetBackend(nint context);
+
     #endregion
 
     #region Device
@@ -242,7 +245,7 @@ internal static unsafe partial class Native
     public static partial nint AllocateDecoderConfig(SampleFormat format, uint channels, uint sampleRate);
 
     [LibraryImport(LibraryName, EntryPoint = "sf_allocate_encoder_config")]
-    public static partial nint AllocateEncoderConfig(EncodingFormat encodingFormat, SampleFormat format, uint channels,
+    public static partial nint AllocateEncoderConfig(SampleFormat format, uint channels,
         uint sampleRate);
 
     [LibraryImport(LibraryName, EntryPoint = "sf_allocate_device_config")]

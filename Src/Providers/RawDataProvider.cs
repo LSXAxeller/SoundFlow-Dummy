@@ -3,6 +3,7 @@ using SoundFlow.Interfaces;
 using SoundFlow.Utils;
 using System.Buffers;
 using System.Runtime.InteropServices;
+using SoundFlow.Metadata.Models;
 using SoundFlow.Abstracts;
 
 namespace SoundFlow.Providers;
@@ -25,37 +26,32 @@ public class RawDataProvider : ISoundDataProvider
     {
         _floatData = rawSamples ?? throw new ArgumentNullException(nameof(rawSamples));
         _sampleFormat = SampleFormat.F32;
-        SampleRate = 48000; // Assume default, as there's no other info
     }
     
-    public RawDataProvider(Stream pcmStream, SampleFormat sampleFormat, int sampleRate, int channels)
+    public RawDataProvider(Stream pcmStream, SampleFormat sampleFormat)
     {
         _pcmStream = pcmStream ?? throw new ArgumentNullException(nameof(pcmStream));
         _sampleFormat = sampleFormat != SampleFormat.Unknown ? sampleFormat 
             : throw new ArgumentException("SampleFormat cannot be Unknown for RawDataProvider when using a stream.", nameof(sampleFormat));
-        SampleRate = sampleRate;
     }
     
-    public RawDataProvider(byte[] rawBytes, SampleFormat sampleFormat, int sampleRate, int channels)
+    public RawDataProvider(byte[] rawBytes, SampleFormat sampleFormat)
     {
         _byteArray = rawBytes ?? throw new ArgumentNullException(nameof(rawBytes));
         _sampleFormat = sampleFormat != SampleFormat.Unknown ? sampleFormat 
             : throw new ArgumentException("SampleFormat cannot be Unknown for RawDataProvider when using a byte array.", nameof(sampleFormat));
-        SampleRate = sampleRate;
     }
     
-    public RawDataProvider(int[] rawSamples, int sampleRate, int channels)
+    public RawDataProvider(int[] rawSamples)
     {
         _intArray = rawSamples ?? throw new ArgumentNullException(nameof(rawSamples));
         _sampleFormat = SampleFormat.S32;
-        SampleRate = sampleRate;
     }
     
-    public RawDataProvider(short[] rawSamples, int sampleRate, int channels)
+    public RawDataProvider(short[] rawSamples)
     {
         _shortData = rawSamples ?? throw new ArgumentNullException(nameof(rawSamples));
         _sampleFormat = SampleFormat.S16;
-        SampleRate = sampleRate;
     }
     
 
@@ -72,10 +68,13 @@ public class RawDataProvider : ISoundDataProvider
     public SampleFormat SampleFormat => _sampleFormat;
 
     /// <inheritdoc />
-    public int SampleRate { get; }
+    public int SampleRate { get; } = 48000; // Assuming 48kHz sample rate
 
     /// <inheritdoc />
     public bool IsDisposed { get; private set; }
+    
+    /// <inheritdoc />
+    public SoundFormatInfo? FormatInfo => null;
 
     /// <inheritdoc />
     public event EventHandler<EventArgs>? EndOfStreamReached;

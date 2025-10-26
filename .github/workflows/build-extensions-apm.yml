@@ -1,9 +1,10 @@
 name: Build WebRTC Audio Processing
 
 on:
+  workflow_dispatch:
   push:
     paths:
-      - 'Extensions/SoundFlow.Extensions.WebRtc.Apm/Native/**'
+      - 'Native/webrtc-audio-processing/**'
 
 jobs:
   build:

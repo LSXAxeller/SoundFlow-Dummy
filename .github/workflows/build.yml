@@ -1,9 +1,10 @@
 name: Build Native Library
 
 on:
+  workflow_dispatch:
   push:
     paths:
-      - 'Native/**'
+      - 'Native/miniaudio-backend/**'
 
 jobs:
   build-freebsd-x64:

@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using SoundFlow.Components;
+using SoundFlow.Interfaces;
 using SoundFlow.Structs;
 
 namespace SoundFlow.Abstracts;
@@ -9,7 +10,7 @@ namespace SoundFlow.Abstracts;
 /// <summary>
 ///     Base class for audio processing components.
 /// </summary>
-public abstract class SoundComponent : IDisposable
+public abstract class SoundComponent : IDisposable, IMidiMappable
 {
     private static readonly ArrayPool<float> BufferPool = ArrayPool<float>.Shared;
 
@@ -27,6 +28,9 @@ public abstract class SoundComponent : IDisposable
     private Vector2 _volumePanFactors;
     private readonly object _stateLock = new();
 
+    /// <inheritdoc />
+    public Guid Id { get; } = Guid.NewGuid();
+    
     /// <summary>
     /// 
     /// </summary>

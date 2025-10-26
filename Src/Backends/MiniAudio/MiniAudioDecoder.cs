@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
-using SoundFlow.Abstracts;
 using SoundFlow.Backends.MiniAudio.Enums;
 using SoundFlow.Enums;
 using SoundFlow.Exceptions;
@@ -41,10 +40,10 @@ internal sealed unsafe class MiniAudioDecoder : ISoundDecoder
         var result = Native.DecoderInit(_readCallback = ReadCallback, _seekCallbackCallback = SeekCallback, nint.Zero, configPtr, _decoder);
         Native.Free(configPtr);
 
-        if (result != Result.Success) throw new BackendException("MiniAudio", result, "Unable to initialize decoder.");
+        if (result != Result.Success) throw new MiniaudioException("MiniAudio", result, "Unable to initialize decoder.");
 
         result = Native.DecoderGetLengthInPcmFrames(_decoder, out var length);
-        if (result != Result.Success) throw new BackendException("MiniAudio", result, "Unable to get decoder length.");
+        if (result != Result.Success) throw new MiniaudioException("MiniAudio", result, "Unable to get decoder length.");
         Length = (int)length * Channels;
         _endOfStreamReached = false;
     }
@@ -78,37 +77,45 @@ internal sealed unsafe class MiniAudioDecoder : ISoundDecoder
 
             var framesToRead = (uint)(samples.Length / Channels);
             if (framesToRead == 0)
+                return 0;
+            
+            var buffer = GetBufferIfNeeded(samples.Length);
+            var span = buffer ?? MemoryMarshal.AsBytes(samples);
+            ulong framesRead;
+            Result result;
+
+            fixed (byte* nativeBuffer = span)
+            {
+                result = Native.DecoderReadPcmFrames(_decoder, (nint)nativeBuffer, framesToRead, out framesRead);
+            }
+
+
+            // If we reached the end of the stream, set the flag and return 0
+            if (result == Result.AtEnd)
             {
                 _endOfStreamReached = true;
+            }
+            // Check for actual errors, ignoring the clean AtEnd result.
+            else if (result != Result.Success) 
+            {
+                _endOfStreamReached = true;
+                return 0;
+            }
+
+            if (framesRead == 0 && _endOfStreamReached)
+            {
                 EndOfStreamReached?.Invoke(this, EventArgs.Empty);
+            }
+
+            if (framesRead == 0)
+            {
+                // If we got here, it means no frames were read, and it wasn't an error, so we're done.
+                if (buffer is not null) ArrayPool<byte>.Shared.Return(buffer);
                 return 0;
             }
             
-            var buffer = GetBufferIfNeeded(samples.Length);
-
-            var span = buffer ?? MemoryMarshal.AsBytes(samples);
-
-            ulong framesRead;
-            fixed (byte* nativeBuffer = span)
-            {
-                if (Native.DecoderReadPcmFrames(_decoder, (nint)nativeBuffer, framesToRead, out framesRead) != Result.Success ||
-                    framesRead == 0)
-                {
-                    _endOfStreamReached = true;
-                    EndOfStreamReached?.Invoke(this, EventArgs.Empty);
-                    return 0;
-                }
-            }
-            
-            if (SampleFormat is not SampleFormat.F32)
-            {
-                ConvertToFloat(samples, framesRead, span);
-            }
-
-            if (buffer is not null)
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
+            if (SampleFormat is not SampleFormat.F32) ConvertToFloat(samples, framesRead, span);
+            if (buffer is not null) ArrayPool<byte>.Shared.Return(buffer);
 
             return (int)framesRead * Channels;
         }
@@ -201,7 +208,7 @@ internal sealed unsafe class MiniAudioDecoder : ISoundDecoder
     {
         lock (_syncLock)
         {
-            if (!_stream.CanRead || _endOfStreamReached)
+            if (!_stream.CanRead)
             {
                 pBytesRead = (ulong*)0;
                 return Result.NoDataAvailable;
@@ -213,17 +220,13 @@ internal sealed unsafe class MiniAudioDecoder : ISoundDecoder
                 Array.Resize(ref _readBuffer, size);
 
             var read = _stream.Read(_readBuffer, 0, size);
-            // Check for end of stream
-            if (read == 0 && !_endOfStreamReached)
+            if (read > 0)
             {
-                _endOfStreamReached = true;
-                EndOfStreamReached?.Invoke(this, EventArgs.Empty);
-            }
-
-            // Copy from read buffer to write buffer
-            fixed (byte* pReadBuffer = _readBuffer)
-            {
-                Buffer.MemoryCopy(pReadBuffer, (void*)pBufferOut, size, read);
+            	// Copy from read buffer to write buffer
+                fixed (byte* pReadBuffer = _readBuffer)
+                {
+                    Buffer.MemoryCopy(pReadBuffer, (void*)pBufferOut, size, read);
+                }
             }
 
             // Clear read buffer

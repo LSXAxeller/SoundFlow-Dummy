@@ -6,7 +6,6 @@ using SoundFlow.Backends.MiniAudio.Enums;
 using SoundFlow.Components;
 using SoundFlow.Enums;
 using SoundFlow.Interfaces;
-using SoundFlow.Modifiers;
 using SoundFlow.Providers;
 using SoundFlow.Structs;
 
@@ -100,7 +99,7 @@ internal static class Program
     /// </summary>
     private static DeviceInfo? SelectDevice(DeviceType type)
     {
-        Engine.UpdateDevicesInfo();
+        Engine.UpdateAudioDevicesInfo();
         var devices = type == DeviceType.Playback ? Engine.PlaybackDevices : Engine.CaptureDevices;
 
         if (devices.Length == 0)
@@ -134,20 +133,24 @@ internal static class Program
     {
         Console.Write("Enter audio file path: ");
         var filePath = Console.ReadLine()?.Replace("\"", "") ?? string.Empty;
-
-        if (!File.Exists(filePath))
+        var isNetworked = Uri.TryCreate(filePath, UriKind.Absolute, out var uriResult) 
+                          && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
+        
+        if (!isNetworked && !File.Exists(filePath))
         {
-            Console.WriteLine("File not found.");
+            Console.WriteLine("File not found at the specified path.");
             return;
         }
-
+        
+        Console.WriteLine(!isNetworked ? "Input is a file path. Opening file stream..." : "Input is a URL. Initializing network stream...");
+        
         var deviceInfo = SelectDevice(DeviceType.Playback);
         if (!deviceInfo.HasValue) return;
         
-        using var playbackDevice = Engine.InitializePlaybackDevice(deviceInfo.Value, Format, DeviceConfig);
+        var playbackDevice = Engine.InitializePlaybackDevice(deviceInfo.Value, Format, DeviceConfig);
         playbackDevice.Start();
-
-        using var dataProvider = new StreamDataProvider(Engine, Format, new FileStream(filePath, FileMode.Open, FileAccess.Read));
+        
+        using ISoundDataProvider dataProvider = isNetworked ? new NetworkDataProvider(Engine, Format, filePath) : new StreamDataProvider(Engine, Format, new FileStream(filePath, FileMode.Open, FileAccess.Read));
         using var soundPlayer = new SoundPlayer(Engine, Format, dataProvider);
         
         playbackDevice.MasterMixer.AddComponent(soundPlayer);
@@ -157,6 +160,7 @@ internal static class Program
 
         playbackDevice.MasterMixer.RemoveComponent(soundPlayer);
         playbackDevice.Stop();
+        playbackDevice.Dispose();
     }
     
     private static void LiveMicrophonePassthrough()
@@ -269,7 +273,7 @@ internal static class Program
         {
             if (player.State != PlaybackState.Stopped)
             {
-                Console.Write($"\rTime: {TimeSpan.FromSeconds(player.Time):mm\\:ss} / {TimeSpan.FromSeconds(player.Duration):mm\\:ss} | Speed: {player.PlaybackSpeed:F1}x | Vol: {player.Volume:F1}  ");
+                Console.Write($"\rTime: {TimeSpan.FromSeconds(player.Time):mm\\:ss\\.ff} / {TimeSpan.FromSeconds(player.Duration):mm\\:ss\\.ff} | Speed: {player.PlaybackSpeed:F1}x | Vol: {player.Volume:F1}  ");
             }
         };
         timer.Start();

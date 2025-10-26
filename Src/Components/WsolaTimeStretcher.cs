@@ -1,6 +1,4 @@
-using SoundFlow.Abstracts;
-
-namespace SoundFlow.Abstracts;
+namespace SoundFlow.Components;
 
 /// <summary>
 /// Implements the WSOLA (Waveform Similarity Overlap-Add) algorithm for real-time time stretching

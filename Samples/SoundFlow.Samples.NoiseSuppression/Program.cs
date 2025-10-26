@@ -1,8 +1,8 @@
 ﻿using SoundFlow.Abstracts;
 using SoundFlow.Backends.MiniAudio;
-using SoundFlow.Backends.MiniAudio.Devices;
 using SoundFlow.Components;
 using SoundFlow.Enums;
+using SoundFlow.Experimental;
 using SoundFlow.Extensions.WebRtc.Apm;
 using SoundFlow.Extensions.WebRtc.Apm.Components;
 using SoundFlow.Extensions.WebRtc.Apm.Modifiers;
@@ -130,6 +130,8 @@ internal static class Program
         using var dataProvider = new StreamDataProvider(Engine, Format, new FileStream(filePath, FileMode.Open, FileAccess.Read));
         using var soundPlayer = new SoundPlayer(Engine, Format, dataProvider);
 
+        soundPlayer.AddModifier(new VoiceIsolationEffect(Format.SampleRate));
+        
         // Add a modifier to the player to apply noise suppression.
         soundPlayer.AddModifier(new WebRtcApmModifier(device: playbackDevice, nsEnabled: true, nsLevel: NoiseSuppressionLevel.VeryHigh));
 
@@ -238,7 +240,7 @@ internal static class Program
         var cleanData = noiseSuppressor.ProcessAll();
 
         using var outputStream = new FileStream(CleanedFilePath, FileMode.Create, FileAccess.Write);
-        using var encoder = Engine.CreateEncoder(outputStream, EncodingFormat.Wav, Format);
+        using var encoder = Engine.CreateEncoder(outputStream, "wav", Format);
         
         encoder.Encode(cleanData.AsSpan());
 

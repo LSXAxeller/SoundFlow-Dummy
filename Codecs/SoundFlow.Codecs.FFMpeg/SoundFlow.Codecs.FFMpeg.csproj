@@ -1,0 +1,34 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <PackageId>SoundFlow.Codecs.FFMpeg</PackageId>
+        <Version>1.3.0</Version>
+        <Description>Provides FFmpeg-based audio codecs (MP3, AAC, OGG, Opus, etc.) for the SoundFlow audio engine.</Description>
+        <PackageTags>soundflow;audio;codec;ffmpeg;mp3;aac;ogg;opus</PackageTags>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\Src\SoundFlow.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="runtimes\**\*.*">
+            <Link>runtimes\%(RecursiveDir)%(Filename)%(Extension)</Link>
+            <PackagePath>runtimes</PackagePath>
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+            <Pack>true</Pack>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="$(PackageId).targets" Pack="true" PackagePath="" />
+        <None Include="runtimes\**\*" Pack="true" PackagePath="runtimes" />
+    </ItemGroup>
+
+
+</Project>

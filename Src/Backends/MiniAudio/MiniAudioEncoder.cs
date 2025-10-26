@@ -22,21 +22,17 @@ internal sealed unsafe class MiniAudioEncoder : ISoundEncoder
     /// Constructs a new encoder to write to the given stream in the specified format.
     /// </summary>
     /// <param name="stream">The stream to write encoded audio to.</param>
-    /// <param name="encodingFormat">The desired audio encoding format.</param>
     /// <param name="sampleFormat">The format of the input audio samples.</param>
     /// <param name="channels">The number of audio channels.</param>
     /// <param name="sampleRate">The sample rate of the input audio.</param>
-    public MiniAudioEncoder(Stream stream, EncodingFormat encodingFormat, SampleFormat sampleFormat, int channels,
+    public MiniAudioEncoder(Stream stream, SampleFormat sampleFormat, int channels,
         int sampleRate)
     {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _channels = channels;
-
-        if (encodingFormat != EncodingFormat.Wav)
-            throw new NotSupportedException("MiniAudio only supports WAV encoding.");
         
         // Construct encoder config
-        var config = Native.AllocateEncoderConfig(encodingFormat, sampleFormat, (uint)channels, (uint)sampleRate);
+        var config = Native.AllocateEncoderConfig(sampleFormat, (uint)channels, (uint)sampleRate);
 
         // Allocate encoder and initialize
         _encoder = Native.AllocateEncoder();
@@ -44,7 +40,7 @@ internal sealed unsafe class MiniAudioEncoder : ISoundEncoder
         Native.Free(config);
         
         if (result != Result.Success)
-            throw new BackendException("MiniAudio", result, "Unable to initialize encoder.");
+            throw new MiniaudioException("MiniAudio", result, "Unable to initialize encoder.");
     }
 
     /// <inheritdoc />
@@ -69,7 +65,7 @@ internal sealed unsafe class MiniAudioEncoder : ISoundEncoder
             {
                 var result = Native.EncoderWritePcmFrames(_encoder, (nint)pSamples, framesToWrite, &framesWritten);
                 if (result != Result.Success)
-                    throw new BackendException("MiniAudio", result, "Failed to write PCM frames to encoder.");
+                    throw new MiniaudioException("MiniAudio", result, "Failed to write PCM frames to encoder.");
             }
 
             return (int)framesWritten * _channels;

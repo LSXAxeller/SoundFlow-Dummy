@@ -204,7 +204,7 @@ public class NoiseSuppressor : IDisposable
                     for (var ch = 0; ch < _audioFormat.Channels; ch++)
                         Marshal.Copy(_deinterleavedInputApmFrame[ch], 0, _inputChannelPtrs[ch], _apmFrameSizePerChannel);
 
-                    var error = NativeMethods.webrtc_apm_process_stream(
+                    var error = NativeMethods.ProcessStream(
                         _apm.NativePtr,
                         _inputChannelArrayPtr,
                         _inputStreamConfig.NativePtr,
