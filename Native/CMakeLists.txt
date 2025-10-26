@@ -85,17 +85,12 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "iOS")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     # Link with emscripten
     target_link_options(miniaudio PUBLIC
+        "-s SIDE_MODULE=1"
         "-s USE_PTHREADS=1"
         "-s EXPORT_ALL=1" # Export all available functions
         "-s MODULARIZE=1"
         "-s EXPORT_ES6=1"
         "-s EXPORT_NAME='miniaudio'"
     )
-
-    # ensure the output file has a .js extension.
-    set_target_properties(miniaudio PROPERTIES
-            PREFIX ""
-            SUFFIX ".js"
-        )
 
 endif()

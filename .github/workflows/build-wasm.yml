@@ -38,39 +38,47 @@ jobs:
         run: |
           emcmake cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-      # 4. Build the project using the configured settings
+      # 4. Build the static library
       - name: Build Library
         shell: bash
         working-directory: ${{ github.workspace }}/Native/build
+        run: cmake --build . --config Release
+      
+      # 5. Link the static library into a WASM module
+      - name: Link WASM Module
+        shell: bash
+        working-directory: ${{ github.workspace }}/Native/build
         run: |
-          cmake --build . --config Release
-          
-      # 5. List all outputs in the build directory
+          emcc -o libminiaudio.js *.a \
+            -sMODULARIZE=1 \
+            -sEXPORT_ES6=1 \
+            -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
+
+      # 6. List all outputs in the build directory for debugging
       - name: List Build Outputs
         shell: bash
         working-directory: ${{ github.workspace }}/Native/build
         run: |
           echo "Listing contents of ${{ github.workspace }}/Native/build/:"
-          ls -laR .
+          ls -la
 
-      # 6. Create the output directory for the artifact
+      # 7. Create the output directory for the artifact
       - name: Create Output Directory
         shell: bash
-        run: |
-          mkdir -p runtimes/${{ matrix.rid }}/native
+        run: mkdir -p runtimes/${{ matrix.rid }}/native
 
-      # 7. Copy the compiled WASM and JavaScript glue files
+      # 8. Copy the compiled WASM and JavaScript glue files
       - name: Copy WASM Artifacts
         shell: bash
         run: |
           find "${{ github.workspace }}/Native/build/" -maxdepth 1 -type f -exec cp {} "runtimes/${{ matrix.rid }}/native/" \;
 
-      # 8. Upload the artifact for this specific build
+      # 9. Upload the artifact for this specific build
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.rid }}
-          path: runtimes/${{ matrix.rid }}
+          path: runtimes/${{ matrix.rid }}/
 
   package:
     needs: build
@@ -86,8 +94,6 @@ jobs:
       - name: Create final package
         run: |
           mkdir -p runtimes
-          # The artifacts are downloaded into subdirectories named after them
-          # e.g., artifacts/wasm-browser/
           cp -r artifacts/*/* runtimes/
           zip -r wasm-library.zip runtimes
 
