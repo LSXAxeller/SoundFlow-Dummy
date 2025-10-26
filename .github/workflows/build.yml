@@ -18,8 +18,8 @@ jobs:
       - name: Create Build Directories on Host
         shell: bash
         run: |
-          mkdir -p ${{ github.workspace }}/Native/build
-          mkdir -p ${{ github.workspace }}/Native/cmake
+          mkdir -p ${{ github.workspace }}/Native/miniaudio-backend/build
+          mkdir -p ${{ github.workspace }}/Native/miniaudio-backend/cmake
 
       - name: Build on FreeBSD x86_64 VM
         uses: vmactions/freebsd-vm@v1
@@ -34,7 +34,7 @@ jobs:
             echo "--- Current directory: $(pwd) ---"
             echo "--- Listing GITHUB_WORKSPACE ---"
             ls -la $GITHUB_WORKSPACE
-            cd $GITHUB_WORKSPACE/Native
+            cd $GITHUB_WORKSPACE/Native/miniaudio-backend
 
             echo "--- System Information (inside FreeBSD VM) ---"
             freebsd-version
@@ -65,7 +65,7 @@ jobs:
       - name: Copy Library for Artifact
         shell: bash
         run: |
-          cp "${{ github.workspace }}/Native/build/libminiaudio.so" "runtimes/freebsd-x64/native/"
+          cp "${{ github.workspace }}/Native/miniaudio-backend/build/libminiaudio.so" "runtimes/freebsd-x64/native/"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -85,8 +85,8 @@ jobs:
       - name: Create Build Directories on Host
         shell: bash
         run: |
-          mkdir -p ${{ github.workspace }}/Native/build
-          mkdir -p ${{ github.workspace }}/Native/cmake
+          mkdir -p ${{ github.workspace }}/Native/miniaudio-backend/build
+          mkdir -p ${{ github.workspace }}/Native/miniaudio-backend/cmake
 
       - name: Build on FreeBSD aarch64 VM
         uses: vmactions/freebsd-vm@v1
@@ -101,7 +101,7 @@ jobs:
             echo "--- Current directory: $(pwd) ---"
             echo "--- Listing GITHUB_WORKSPACE ---"
             ls -la $GITHUB_WORKSPACE
-            cd $GITHUB_WORKSPACE/Native
+            cd $GITHUB_WORKSPACE/Native/miniaudio-backend
 
             echo "--- System Information (inside FreeBSD VM) ---"
             freebsd-version
@@ -132,7 +132,7 @@ jobs:
       - name: Copy Library for Artifact
         shell: bash
         run: |
-          cp "${{ github.workspace }}/Native/build/libminiaudio.so" "runtimes/freebsd-arm64/native/"
+          cp "${{ github.workspace }}/Native/miniaudio-backend/build/libminiaudio.so" "runtimes/freebsd-arm64/native/"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -248,8 +248,8 @@ jobs:
       - name: Create Build Directories
         shell: bash
         run: |
-          mkdir -p ${{ github.workspace }}/Native/build
-          mkdir -p ${{ github.workspace }}/Native/cmake
+          mkdir -p ${{ github.workspace }}/Native/miniaudio-backend/build
+          mkdir -p ${{ github.workspace }}/Native/miniaudio-backend/cmake
 
       # Windows-specific setup
       - name: Setup Visual Studio (Windows)
@@ -306,7 +306,7 @@ jobs:
       - name: Configure CMake (Windows)
         if: matrix.platform == 'Windows'
         shell: cmd
-        working-directory: ${{ github.workspace }}/Native
+        working-directory: ${{ github.workspace }}/Native/miniaudio-backend
         run: |
           cmake -B build -G "%TOOLCHAIN%" -A %CMAKE_TARGET_ARCH% -DCMAKE_BUILD_TYPE=Release
         env:
@@ -316,7 +316,7 @@ jobs:
       - name: Configure CMake (Unix)
         if: matrix.platform != 'Windows'
         shell: bash
-        working-directory: ${{ github.workspace }}/Native
+        working-directory: ${{ github.workspace }}/Native/miniaudio-backend
         run: |
           CMAKE_FLAGS=""
           if [ "${{ matrix.platform }}" == "Android" ]; then
@@ -347,14 +347,14 @@ jobs:
       - name: Build (Windows)
         if: matrix.platform == 'Windows'
         shell: cmd
-        working-directory: ${{ github.workspace }}/Native/build
+        working-directory: ${{ github.workspace }}/Native/miniaudio-backend/build
         run: |
           cmake --build . --config Release
 
       - name: Build (iOS)
         if: matrix.platform == 'iOS'
         shell: bash
-        working-directory: ${{ github.workspace }}/Native/build
+        working-directory: ${{ github.workspace }}/Native/miniaudio-backend/build
         run: |
           xcodebuild \
             -project *.xcodeproj \
@@ -367,7 +367,7 @@ jobs:
       - name: Build (Unix)
         if: matrix.platform != 'Windows' && matrix.platform != 'iOS'
         shell: bash
-        working-directory: ${{ github.workspace }}/Native/build
+        working-directory: ${{ github.workspace }}/Native/miniaudio-backend/build
         run: |
           cmake --build . --config Release
 
@@ -382,11 +382,11 @@ jobs:
         run: |
           mkdir -p runtimes/${{ matrix.rid }}/native
           if [ "${{ matrix.platform }}" == "Windows" ]; then
-            cp "${{ github.workspace }}/Native/build/Release/miniaudio.dll" "runtimes/${{ matrix.rid }}/native/"
+            cp "${{ github.workspace }}/Native/miniaudio-backend/build/Release/miniaudio.dll" "runtimes/${{ matrix.rid }}/native/"
           elif [ "${{ matrix.platform }}" == "iOS" ]; then
-            cp -r "${{ github.workspace }}/Native/build/Release-iphoneos/miniaudio.framework" "runtimes/${{ matrix.rid }}/native/"
+            cp -r "${{ github.workspace }}/Native/miniaudio-backend/build/Release-iphoneos/miniaudio.framework" "runtimes/${{ matrix.rid }}/native/"
           else
-            cp "${{ github.workspace }}/Native/build/libminiaudio${{ matrix.lib_extension }}" "runtimes/${{ matrix.rid }}/native/"
+            cp "${{ github.workspace }}/Native/miniaudio-backend/build/libminiaudio${{ matrix.lib_extension }}" "runtimes/${{ matrix.rid }}/native/"
           fi
 
       # Dependency analysis

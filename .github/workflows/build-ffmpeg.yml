@@ -34,6 +34,7 @@ jobs:
     defaults:
       run:
         shell: msys2 {0}
+        working-directory: Native/ffmpeg-codec
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +60,7 @@ jobs:
           cmake .. -G "MinGW Makefiles" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }}
-          cmake --build . --parallel $(nproc) --verbose
+          cmake --build . --parallel --verbose
 
       - name: Analyze Dependencies
         shell: msys2 {0}
@@ -84,8 +85,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundflow-ffmpeg-win-${{ matrix.arch }}
-          path: build/runtimes/win-${{ matrix.arch }}/native/*.dll
-          
+          path: Native/ffmpeg-codec/build/runtimes/win-${{ matrix.arch }}/native/*.dll
+  
   # Linux builds
   build-linux:
     strategy:
@@ -110,6 +111,9 @@ jobs:
               -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
             toolchain_pkgs: gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: Native/ffmpeg-codec
     steps:
       - uses: actions/checkout@v4
 
@@ -123,7 +127,7 @@ jobs:
           mkdir build
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_opts }}
-          cmake --build . --parallel $(nproc) --verbose
+          cmake --build . --parallel --verbose
 
       - name: Analyze Dependencies
         run: |
@@ -158,7 +162,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundflow-ffmpeg-linux-${{ matrix.arch }}
-          path: build/runtimes/linux-${{ matrix.arch }}/native/*
+          path: Native/ffmpeg-codec/build/runtimes/linux-${{ matrix.arch }}/native/*
 
   # macOS builds
   build-macos:
@@ -173,6 +177,9 @@ jobs:
             os: macos-14
             cmake_arch: arm64
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: Native/ffmpeg-codec
     steps:
       - uses: actions/checkout@v4
 
@@ -193,7 +200,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }} \
             -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_arch }}
-          cmake --build . --parallel $(sysctl -n hw.ncpu) --verbose
+          cmake --build . --parallel --verbose
 
       - name: Analyze Dependencies
         run: |
@@ -218,7 +225,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundflow-ffmpeg-osx-${{ matrix.arch }}
-          path: build/runtimes/osx-${{ matrix.arch }}/native/*
+          path: Native/ffmpeg-codec/build/runtimes/osx-${{ matrix.arch }}/native/*
 
   # Android builds
   build-android:
@@ -233,6 +240,9 @@ jobs:
           - rid_arch: arm64
             abi: arm64-v8a
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: Native/ffmpeg-codec
     steps:
       - uses: actions/checkout@v4
 
@@ -258,7 +268,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=${{ matrix.abi }} \
             -DANDROID_PLATFORM=21
-          cmake --build . --parallel $(nproc) --verbose
+          cmake --build . --parallel --verbose
 
       - name: Analyze Dependencies
         env:
@@ -287,7 +297,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundflow-ffmpeg-android-${{ matrix.rid_arch }}
-          path: build/runtimes/android-${{ matrix.rid_arch }}/native/*
+          path: Native/ffmpeg-codec/build/runtimes/android-${{ matrix.rid_arch }}/native/*
 
   # FreeBSD build
   build-freebsd:
@@ -310,6 +320,8 @@ jobs:
           version: '14.0'
           architecture: ${{ matrix.vm_arch }}
           run: |
+            cd Native/ffmpeg-codec
+
             # Install dependencies
             sudo pkg install -y cmake gmake nasm yasm pkgconf bash
 
@@ -321,7 +333,7 @@ jobs:
             cmake .. \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_MAKE_PROGRAM=gmake
-            cmake --build . --parallel $(sysctl -n hw.ncpu) --verbose
+            cmake --build . --parallel --verbose
             
             # Go back to project root
             cd ..
@@ -347,11 +359,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundflow-ffmpeg-freebsd-${{ matrix.arch }}
-          path: build/runtimes/freebsd-${{ matrix.arch }}/native/*
+          path: Native/ffmpeg-codec/build/runtimes/freebsd-${{ matrix.arch }}/native/*
 
   # iOS build
   build-ios:
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: Native/ffmpeg-codec
     steps:
       - uses: actions/checkout@v4
 
@@ -373,7 +388,7 @@ jobs:
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-          cmake --build . --parallel $(sysctl -n hw.ncpu) --verbose
+          cmake --build . --parallel --verbose
 
       - name: Analyze Dependencies
         run: |
@@ -398,7 +413,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundflow-ffmpeg-ios-arm64
-          path: build/runtimes/ios-arm64/native/*
+          path: Native/ffmpeg-codec/build/runtimes/ios-arm64/native/*
 
   package-artifacts:
     name: Package all artifacts

@@ -63,23 +63,36 @@ jobs:
           submodules: recursive
 
       - name: Install Dependencies (Linux)
-        if: matrix.platform == 'Linux'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           # Install build tools
           sudo apt-get install -y build-essential cmake file binutils
+          
           # Install cross-compilers for ARM targets
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
+          if [ "${{ matrix.arch }}" == "aarch64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-            # Install ALSA dev library for the target architecture
+            # Add the arm64 architecture
             sudo dpkg --add-architecture arm64
+            # Add the Ubuntu Ports repository which hosts arm64 packages
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+            # Update package lists to include the new architecture and repository
             sudo apt-get update
+            # Install ALSA dev library for the target architecture
             sudo apt-get install -y libasound2-dev:arm64
           elif [ "${{ matrix.arch }}" == "arm" ]; then
             sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-            # Install ALSA dev library for the target architecture
+            # Add the armhf architecture
             sudo dpkg --add-architecture armhf
+            # Add the Ubuntu Ports repository which hosts armhf packages
+            echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/armhf.list
+            echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+            echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/armhf.list
+            # Update package lists to include the new architecture and repository
             sudo apt-get update
+            # Install ALSA dev library for the target architecture
             sudo apt-get install -y libasound2-dev:armhf
           else
             # Install ALSA dev library for native architecture
@@ -92,12 +105,12 @@ jobs:
         run: |
           CMAKE_FLAGS="-DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF"
           
-          if [ "${{ matrix.platform }}" == "Windows" ]; then
+          if [ "${{ runner.os }}" == "Windows" ]; then
             cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_target_arch }} $CMAKE_FLAGS
-          elif [ "${{ matrix.platform }}" == "macOS" ]; then
+          elif [ "${{ runner.os }}" == "macOS" ]; then
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} $CMAKE_FLAGS
-          elif [ "${{ matrix.platform }}" == "Linux" ]; then
-            if [ "${{ matrix.arch }}" == "arm64" ]; then
+          elif [ "${{ runner.os }}" == "Linux" ]; then
+            if [ "${{ matrix.arch }}" == "aarch64" ]; then
               CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++"
             elif [ "${{ matrix.arch }}" == "arm" ]; then
               CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_SYSTEM_PROCESSOR=arm -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++"
@@ -115,29 +128,43 @@ jobs:
       - name: Copy Library for Artifact
         shell: bash
         run: |
-          if [ "${{ matrix.platform }}" == "Windows" ]; then
+          if [ "${{ runner.os }}" == "Windows" ]; then
             cp "Native/portmidi/build/Release/portmidi.dll" "runtimes/${{ matrix.rid }}/native/"
-          elif [ "${{ matrix.platform }}" == "macOS" ]; then
+          elif [ "${{ runner.os }}" == "macOS" ]; then
             cp "Native/portmidi/build/libportmidi.dylib" "runtimes/${{ matrix.rid }}/native/"
           else
             cp "Native/portmidi/build/libportmidi.so" "runtimes/${{ matrix.rid }}/native/"
           fi
 
-      - name: Analyze Dependencies
+      - name: Setup MSVC developer environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Analyze Dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
+          dumpbin /DEPENDENTS runtimes/${{ matrix.rid }}/native/portmidi.dll
+
+      - name: Analyze Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
+          otool -L runtimes/${{ matrix.rid }}/native/libportmidi.dylib
+
+      - name: Analyze Dependencies (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
-          LIB_PATH_BASE="runtimes/${{ matrix.rid }}/native"
-          if [ "${{ matrix.platform }}" == "Windows" ]; then
-            dumpbin /DEPENDENTS "$LIB_PATH_BASE/portmidi.dll"
-          elif [ "${{ matrix.platform }}" == "macOS" ]; then
-            otool -L "$LIB_PATH_BASE/libportmidi.dylib"
-          elif [ "${{ matrix.platform }}" == "Linux" ]; then
-            if [ "${{ matrix.arch }}" == "x86_64" ]; then
-              ldd "$LIB_PATH_BASE/libportmidi.so"
-            else
-              readelf -d "$LIB_PATH_BASE/libportmidi.so" | grep "NEEDED"
-            fi
+          LIB_PATH="runtimes/${{ matrix.rid }}/native/libportmidi.so"
+          if [ "${{ matrix.arch }}" == "x86_64" ]; then
+            ldd "$LIB_PATH"
+          else
+            # ldd doesn't work for cross-compiled binaries, so use readelf
+            readelf -d "$LIB_PATH" | grep "NEEDED"
           fi
 
       - name: Upload Artifact
@@ -155,8 +182,10 @@ jobs:
         include:
           - arch: x64
             vm_arch: x86_64
+            release: "14.0"
           - arch: arm64
             vm_arch: aarch64
+            release: "14.1"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -166,11 +195,11 @@ jobs:
       - name: Build in FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.0"
+          release: ${{ matrix.release }}
           arch: ${{ matrix.vm_arch }}
           usesh: true
           prepare: |
-            pkg install -y cmake gmake
+            pkg install -y cmake gmake alsa-lib
           run: |
             set -ex # Exit on error and print commands
             cd $GITHUB_WORKSPACE/Native/portmidi
@@ -203,8 +232,16 @@ jobs:
       - name: Reorganize and Package
         run: |
           mkdir runtimes
-          # The downloaded artifacts are folders named by RID, so we can copy them directly
-          cp -r artifacts/*/* runtimes/
+          for dir in artifacts/*; do
+            # Get the RID from the directory name (e.g., "win-x64")
+            rid=$(basename "$dir")
+            echo "Processing artifact for RID: $rid"
+          
+            target_dir="runtimes/$rid"
+            mkdir -p "$target_dir"
+            mv "$dir"/* "$target_dir/"
+          done
+          
           echo "Final package structure:"
           ls -R runtimes
           zip -r portmidi-native-libraries.zip runtimes
