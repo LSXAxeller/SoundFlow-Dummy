@@ -76,18 +76,24 @@ jobs:
       - name: Build ARM libraries with Docker
         if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
         run: |
-          # Determine the Docker image based on architecture
+          # Set up Docker Buildx with QEMU support
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+          # Determine the platform and image
           if [ "${{ matrix.arch }}" == "aarch64" ]; then
+            PLATFORM="linux/arm64"
             DOCKER_IMAGE="arm64v8/ubuntu:22.04"
           elif [ "${{ matrix.arch }}" == "arm" ]; then
+            PLATFORM="linux/arm/v7"
             DOCKER_IMAGE="arm32v7/ubuntu:22.04"
           fi
-          
-          docker run --rm -v $PWD:/workspace $DOCKER_IMAGE /bin/bash -c "
+
+          # Build using Docker with QEMU emulation
+          docker run --rm --platform $PLATFORM -v $PWD:/workspace $DOCKER_IMAGE /bin/bash -c "
             # Update and install dependencies
             apt-get update
             apt-get install -y build-essential cmake libasound2-dev
-          
+
             # Build PortMidi
             cd /workspace/Native/portmidi
             cmake -S . -B build \
@@ -96,7 +102,7 @@ jobs:
               -DBUILD_PORTMIDI_TESTS=OFF
             cmake --build build --config Release --parallel
           "
-          
+
           # Copy the built library to the artifact directory
           mkdir -p runtimes/${{ matrix.rid }}/native
           cp Native/portmidi/build/libportmidi.so runtimes/${{ matrix.rid }}/native/
