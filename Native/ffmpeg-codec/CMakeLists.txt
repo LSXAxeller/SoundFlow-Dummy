@@ -457,6 +457,16 @@ endif()
 # External build of FFmpeg
 find_program(BASH_EXECUTABLE bash REQUIRED)
 
+if(CMAKE_GENERATOR STREQUAL "MinGW Makefiles")
+    find_program(FFMPEG_MAKE_EXECUTABLE make HINTS "C:/msys64/usr/bin")
+    if(NOT FFMPEG_MAKE_EXECUTABLE)
+        message(FATAL_ERROR "Could not find MSYS 'make'. It's required to build FFmpeg with MinGW Makefiles.")
+    endif()
+else()
+    # For all other generators (Unix Makefiles, Ninja, etc.), CMAKE_MAKE_PROGRAM is fine.
+    set(FFMPEG_MAKE_EXECUTABLE ${CMAKE_MAKE_PROGRAM})
+endif()
+
 include(ExternalProject)
 ExternalProject_Add(ffmpeg_dependency
         URL               ${FFMPEG_URL}
@@ -466,8 +476,8 @@ ExternalProject_Add(ffmpeg_dependency
         CONFIGURE_COMMAND ${BASH_EXECUTABLE} <SOURCE_DIR>/configure
         --prefix=${FFMPEG_INSTALL_DIR}
         ${FFMPEG_COMMON_FLAGS}
-        BUILD_COMMAND     ${CMAKE_MAKE_PROGRAM} -j${CMAKE_BUILD_PARALLEL_LEVEL}
-        INSTALL_COMMAND   ${CMAKE_MAKE_PROGRAM} install
+        BUILD_COMMAND     ${FFMPEG_MAKE_EXECUTABLE} -j${CMAKE_BUILD_PARALLEL_LEVEL}
+        INSTALL_COMMAND   ${FFMPEG_MAKE_EXECUTABLE} install
         LOG_DOWNLOAD      1
         LOG_CONFIGURE     1
         LOG_BUILD         1

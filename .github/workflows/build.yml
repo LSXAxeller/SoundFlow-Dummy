@@ -163,13 +163,14 @@ jobs:
             lib_extension: ".dll"
             toolchain: "Visual Studio 17 2022"
 
-          - os: windows-latest
-            rid: win-arm64
-            platform: Windows
-            arch: ARM64
-            cmake_target_arch: ARM64
-            lib_extension: ".dll"
-            toolchain: "Visual Studio 17 2022"
+          # Disabled due to https://github.com/mackron/miniaudio/issues/1045
+          #- os: windows-latest
+          #  rid: win-arm64
+          #  platform: Windows
+          #  arch: ARM64
+          #  cmake_target_arch: ARM64
+          #  lib_extension: ".dll"
+          #  toolchain: "Visual Studio 17 2022"
 
           # Linux builds
           - os: ubuntu-22.04
