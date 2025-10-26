@@ -66,25 +66,27 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          # Install build tools
-          sudo apt-get install -y build-essential cmake file binutils
-          # Install cross-compilers for ARM targets
+          sudo apt-get install -y build-essential cmake file binutils lsb-release
+          
           if [ "${{ matrix.arch }}" == "aarch64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-            # Install ALSA dev library for the target architecture
             sudo dpkg --add-architecture arm64
+            # Add sources for the arm64 architecture from ports.ubuntu.com
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-security main universe" | sudo tee -a /etc/apt/sources.list.d/arm64.list
             sudo apt-get update
             sudo apt-get install -y libasound2-dev:arm64
           elif [ "${{ matrix.arch }}" == "arm" ]; then
             sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
             sudo dpkg --add-architecture armhf
+            # Add sources for the armhf architecture from ports.ubuntu.com
             echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/armhf.list
             echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/armhf.list
             echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-security main universe" | sudo tee -a /etc/apt/sources.list.d/armhf.list
             sudo apt-get update
             sudo apt-get install -y libasound2-dev:armhf
           else
-            # Install ALSA dev library for native architecture
             sudo apt-get install -y libasound2-dev
           fi
 
