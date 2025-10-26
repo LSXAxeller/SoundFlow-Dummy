@@ -1,10 +1,10 @@
-name: Build WebRTC Audio Processing
+name: Build PortMidi Library
 
 on:
-  workflow_dispatch:
   push:
     paths:
-      - 'Native/webrtc-audio-processing/**'
+      - 'Native/portmidi/**'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,315 +18,253 @@ jobs:
             rid: win-x64
             platform: Windows
             arch: x64
-            toolchain: mingw
-            cross_file: "windows-x64.crossfile"
-
+            cmake_target_arch: x64
           - os: windows-latest
             rid: win-x86
             platform: Windows
             arch: x86
-            toolchain: mingw
-            cross_file: "windows-x86.crossfile"
+            cmake_target_arch: Win32
+          - os: windows-latest
+            rid: win-arm64
+            platform: Windows
+            arch: ARM64
+            cmake_target_arch: ARM64
 
           # Linux builds
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-x64
             platform: Linux
             arch: x86_64
-            toolchain: gcc
-            cross_file: ""
-
-          - os: ubuntu-latest
-            rid: linux-arm
-            platform: Linux
-            arch: armv7l
-            toolchain: gcc
-            cross_file: "linux-arm.crossfile"
-
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-arm64
             platform: Linux
             arch: aarch64
-            toolchain: gcc
-            cross_file: "linux-arm64.crossfile"
+          - os: ubuntu-22.04
+            rid: linux-arm
+            platform: Linux
+            arch: arm
 
           # macOS builds
           - os: macos-latest
             rid: osx-x64
             platform: macOS
             arch: x86_64
-            toolchain: clang
-            cross_file: "osx-x64.crossfile"
-
           - os: macos-latest
             rid: osx-arm64
             platform: macOS
             arch: arm64
-            toolchain: clang
-            cross_file: ""
-
-          # iOS builds
-          - os: macos-latest
-            rid: ios-arm64
-            platform: iOS
-            arch: arm64
-            toolchain: clang
-            cross_file: "ios.crossfile"
-
-          # Android builds
-          #- os: ubuntu-latest
-          #  rid: android-arm
-          #  platform: Android
-          #  arch: armeabi-v7a
-          #  toolchain: clang
-          #  cross_file: "android-arm.crossfile"
-          #  compiler_prefix: "armv7a-linux-androideabi"
-
-          - os: ubuntu-latest
-            rid: android-arm64
-            platform: Android
-            arch: arm64-v8a
-            toolchain: clang
-            cross_file: "android-arm64.crossfile"
-            compiler_prefix: "aarch64-linux-android"
-
-          - os: ubuntu-latest
-            rid: android-x64
-            platform: Android
-            arch: x86_64
-            toolchain: clang
-            cross_file: "android-x64.crossfile"
-            compiler_prefix: "x86_64-linux-android"
 
     name: Build for ${{ matrix.platform }} - ${{ matrix.arch }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Setup Python and Meson
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install Meson and Ninja
-        run: pip install meson ninja --upgrade
-
-      # Install MinGW for Windows builds
-      - name: Set up MinGW (Windows - x64)
-        if: matrix.platform == 'Windows' && matrix.arch == 'x64'
-        uses: deevroman/setup-mingw@0.0.1
-        with:
-          platform: x64
-          static: any
-
-      - name: Set up MinGW (Windows - x86)
-        if: matrix.platform == 'Windows' && matrix.arch == 'x86'
-        uses: deevroman/setup-mingw@0.0.1
-        with:
-          platform: any
-          static: any
-
-      # Linux dependencies
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config file binutils
+          sudo apt-get install -y build-essential cmake file binutils lsb-release
           
-          # For cross-compilation
-          if [ "${{ matrix.rid }}" == "linux-arm" ]; then
-            sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
-          elif [ "${{ matrix.rid }}" == "linux-arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          # For native x86_64 build only
+          if [ "${{ matrix.arch }}" == "x86_64" ]; then
+            sudo apt-get install -y libasound2-dev
           fi
 
-      # Android setup
-      - name: Set up Android NDK
-        if: matrix.platform == 'Android'
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
+      - name: Build ARM libraries with Docker
+        if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
+        run: |
+          # Set up Docker Buildx with QEMU support
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+          # Determine the platform and image
+          if [ "${{ matrix.arch }}" == "aarch64" ]; then
+            PLATFORM="linux/arm64"
+            DOCKER_IMAGE="arm64v8/ubuntu:22.04"
+          elif [ "${{ matrix.arch }}" == "arm" ]; then
+            PLATFORM="linux/arm/v7"
+            DOCKER_IMAGE="arm32v7/ubuntu:22.04"
+          fi
+
+          # Build using Docker with QEMU emulation
+          docker run --rm --platform $PLATFORM -v $PWD:/workspace $DOCKER_IMAGE /bin/bash -c "
+            # Update and install dependencies
+            apt-get update
+            apt-get install -y build-essential cmake libasound2-dev
+
+            # Build PortMidi
+            cd /workspace/Native/portmidi
+            cmake -S . -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=ON \
+              -DBUILD_PORTMIDI_TESTS=OFF
+            cmake --build build --config Release --parallel
+          "
+
+          # Copy the built library to the artifact directory
+          mkdir -p runtimes/${{ matrix.rid }}/native
+          cp Native/portmidi/build/libportmidi.so runtimes/${{ matrix.rid }}/native/
+
+      - name: Configure and Build Native (Non-ARM Linux)
+        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
+        shell: bash
+        working-directory: Native/portmidi
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PORTMIDI_TESTS=OFF
+          cmake --build build --config Release --parallel
+          
+          mkdir -p ../../runtimes/${{ matrix.rid }}/native
+          cp build/libportmidi.so ../../runtimes/${{ matrix.rid }}/native/
+
+      - name: Configure and Build (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: Native/portmidi
+        run: |
+          cmake -S . -B build \
+            -G "Visual Studio 17 2022" \
+            -A ${{ matrix.cmake_target_arch }} \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PORTMIDI_TESTS=OFF
+          cmake --build build --config Release --parallel
+          
+          mkdir -p ../../runtimes/${{ matrix.rid }}/native
+          cp build/Release/portmidi.dll ../../runtimes/${{ matrix.rid }}/native/
+
+      - name: Configure and Build (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: Native/portmidi
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PORTMIDI_TESTS=OFF
+          cmake --build build --config Release --parallel
+          
+          mkdir -p ../../runtimes/${{ matrix.rid }}/native
+          cp build/libportmidi.dylib ../../runtimes/${{ matrix.rid }}/native/
+
+      - name: Setup MSVC developer environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          ndk-version: r26d
-          add-to-path: false
+          arch: ${{ matrix.arch }}
 
-      - name: Configure environment for Android
-        if: matrix.platform == 'Android'
-        shell: bash
-        run: |
-          echo "NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
-          echo "TOOLCHAIN_ROOT=${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
-
-      # Print the NDK Root
-      - name: Print NDK Root
-        if: matrix.platform == 'Android'
-        shell: bash
-        run: |
-          echo "The NDK Root is: $NDK_ROOT"
-          echo "The Toolchain Root is: $TOOLCHAIN_ROOT"
-          # List contents of the build directory before copying
-          echo "Listing contents of Toolchain: $TOOLCHAIN_ROOT"
-          ls -l "/opt/hostedtoolcache/ndk/r26d/x64/toolchains/llvm/prebuilt/linux-x86_64/bin/"
-
-
-      - name: Install Xcode Command Line Tools (iOS)
-        if: matrix.platform == 'iOS'
-        run: |
-          xcode-select --install || true
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-
-      # Install Homebrew LLVM for iOS builds
-      - name: Install Homebrew LLVM (IOS)
-        if: matrix.platform == 'iOS'
-        run: |
-          brew update
-          brew install llvm
-          echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
-          echo "/opt/homebrew/opt/llvm/lib" >> $GITHUB_PATH
-          echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> /Users/runner/.bash_profile
-
-      # Configure Meson
-      - name: Configure Meson
-        shell: bash
-        run: |
-          cd Native/webrtc-audio-processing/
-          BUILD_DIR="build_${{ matrix.rid }}"
-          EXTRA_ARGS="--buildtype=release"
-          
-          if [ -n "${{ matrix.cross_file }}" ]; then
-            meson setup $BUILD_DIR --cross-file crossfiles/${{ matrix.cross_file }} $EXTRA_ARGS
-          else
-            meson setup $BUILD_DIR $EXTRA_ARGS
-          fi
-
-      - name: Build with Ninja
-        shell: bash
-        run: |
-          cd Native/webrtc-audio-processing/
-          BUILD_DIR="build_${{ matrix.rid }}"
-          ninja -C $BUILD_DIR
-
-      # Package the artifacts
-      - name: Copy and rename artifacts
-        shell: bash
-        run: |
-          cd Native/webrtc-audio-processing/
-          BUILD_DIR="build_${{ matrix.rid }}/webrtc/modules/audio_processing"
-          OUTPUT_DIR="runtimes/${{ matrix.rid }}/native"
-          
-          echo "Listing contents of BUILD_DIR: $BUILD_DIR"
-          ls -l "$BUILD_DIR"
-          
-          mkdir -p "$OUTPUT_DIR"
-          
-          if [ "${{ matrix.platform }}" == "Windows" ]; then
-            cp "$BUILD_DIR"/*.dll "$OUTPUT_DIR/webrtc-apm.dll"
-          elif [ "${{ matrix.platform }}" == "iOS" ] || [ "${{ matrix.platform }}" == "macOS" ]; then
-            cp "$BUILD_DIR/libwebrtc-audio-processing-2.1.dylib" "$OUTPUT_DIR/libwebrtc-apm.dylib"
-          else
-            cp "$BUILD_DIR"/*.so "$OUTPUT_DIR/libwebrtc-apm.so"
-          fi
-          
-          echo "Copied artifact to:"
-          ls -l "$OUTPUT_DIR"
-
-      # Dependency analysis
       - name: Analyze Dependencies (Windows)
-        if: matrix.platform == 'Windows'
-        shell: bash
+        if: runner.os == 'Windows' && matrix.arch != 'ARM64'
         run: |
-          cd Native/webrtc-audio-processing/
-          echo "Dependencies for Windows (MinGW):"
-          objdump -p "runtimes/${{ matrix.rid }}/native/webrtc-apm.dll" | grep "DLL Name:"
-          echo "Imported symbols:"
-          nm -g "runtimes/${{ matrix.rid }}/native/webrtc-apm.dll" | grep " T "
-
-      - name: Analyze Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.platform == 'Linux'
-        shell: bash
-        run: |
-          cd Native/webrtc-audio-processing/
-          LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.so"
-          echo "=== Library Information ==="
-          file "$LIB_PATH"
-
-          echo -e "\n=== Dependencies ==="
-          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
-            ldd "$LIB_PATH" || true
-          else
-            # For ARM architectures, use readelf instead of ldd
-            readelf -d "$LIB_PATH" | grep "NEEDED" || true
-          fi
-
-          echo -e "\n=== Symbols ==="
-          if [[ "${{ matrix.arch }}" == "x86_64" || "${{ matrix.arch }}" == "aarch64" ]]; then
-            nm -g "$LIB_PATH" | grep " T " || true
-          else
-            # For armv7l, use the correct cross-arch nm
-            arm-linux-gnueabihf-nm -g "$LIB_PATH" | grep " T " || true
-          fi
-
-          echo -e "\n=== SONAME ==="
-          readelf -d "$LIB_PATH" | grep "SONAME" || true
-
-      - name: Analyze Dependencies (Android)
-        if: matrix.platform == 'Android'
-        shell: bash
-        run: |
-          cd Native/webrtc-audio-processing/
-          LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.so"
-          echo "Dependencies for Android:"
-          readelf -d "$LIB_PATH"
-          echo "Symbols:"
-          nm -g "$LIB_PATH" | grep " T "
+          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
+          dumpbin /DEPENDENTS runtimes/${{ matrix.rid }}/native/portmidi.dll
 
       - name: Analyze Dependencies (macOS)
-        if: matrix.os == 'macos-latest' && matrix.platform == 'macOS'
-        shell: bash
+        if: runner.os == 'macOS'
         run: |
-          cd Native/webrtc-audio-processing/
-          LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.dylib"
-          echo "Dependencies for macOS:"
-          otool -L "$LIB_PATH"
-          echo "Symbols:"
-          nm -g "$LIB_PATH" | grep " T "
+          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
+          otool -L runtimes/${{ matrix.rid }}/native/libportmidi.dylib
 
-      - name: Analyze Dependencies (iOS)
-        if: matrix.platform == 'iOS'
+      - name: Analyze Dependencies (Linux x86_64)
+        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
         shell: bash
         run: |
-          cd Native/webrtc-audio-processing/
-          LIB_PATH="runtimes/${{ matrix.rid }}/native/libwebrtc-apm.dylib"
-          echo "Dependencies for iOS:"
-          otool -L "$LIB_PATH"
-          echo "Symbols:"
-          nm -g "$LIB_PATH" | grep " T "
+          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
+          ldd "runtimes/${{ matrix.rid }}/native/libportmidi.so"
+
+      - name: Analyze Dependencies (Linux ARM)
+        if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
+        shell: bash
+        run: |
+          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
+          # For cross-compiled binaries, use readelf instead of ldd
+          readelf -d "runtimes/${{ matrix.rid }}/native/libportmidi.so" | grep "NEEDED"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.rid }}
-          path: Native/webrtc-audio-processing/runtimes/${{ matrix.rid }}
+          path: runtimes/${{ matrix.rid }}
+
+  build-freebsd:
+    name: Build for FreeBSD - ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            vm_arch: x86_64
+            release: "14.0"
+          - arch: arm64
+            vm_arch: aarch64
+            release: "14.1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build and Prepare Artifact in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ matrix.release }}
+          arch: ${{ matrix.vm_arch }}
+          usesh: true
+          prepare: |
+            pkg install -y cmake gmake alsa-lib
+          run: |
+            set -ex # Exit on error and print commands
+            
+            # Build the library 
+            cd $GITHUB_WORKSPACE/Native/portmidi
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
+            cmake --build build --config Release --parallel
+            
+            # Prepare artifact directory and copy the library (inside the VM)
+            ARTIFACT_DIR="$GITHUB_WORKSPACE/runtimes/freebsd-${{ matrix.arch }}/native"
+            mkdir -p "$ARTIFACT_DIR"
+            cp "$GITHUB_WORKSPACE/Native/portmidi/build/libportmidi.so" "$ARTIFACT_DIR/"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-${{ matrix.arch }}
+          path: runtimes/freebsd-${{ matrix.arch }}
 
   package:
-    needs: build
+    name: Package all PortMidi artifacts
     runs-on: ubuntu-latest
+    needs: [build, build-freebsd]
     steps:
-      - name: Download all artifacts
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: artifacts/
 
-      - name: Create final package
+      - name: Reorganize and Package
         run: |
-          mkdir -p runtimes
-          cp -r artifacts/* runtimes/
-          zip -r webrtc-audio-processing.zip runtimes
+          mkdir runtimes
+          for dir in artifacts/*; do
+            # Get the RID from the directory name (e.g., "win-x64")
+            rid=$(basename "$dir")
+            echo "Processing artifact for RID: $rid"
+          
+            target_dir="runtimes/$rid"
+            mkdir -p "$target_dir"
+            mv "$dir"/* "$target_dir/"
+          done
+          
+          echo "Final package structure:"
+          ls -R runtimes
+          zip -r portmidi-native-libraries.zip runtimes
 
       - name: Upload final package
         uses: actions/upload-artifact@v4
         with:
-          name: webrtc-audio-processing
-          path: webrtc-audio-processing.zip
+          name: portmidi-native-libraries
+          path: portmidi-native-libraries.zip

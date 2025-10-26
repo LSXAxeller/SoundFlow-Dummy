@@ -7,30 +7,31 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-main:
+    name: Build for ${{ matrix.platform }} - ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Windows builds
+          # Windows (MSVC)
           - os: windows-latest
             rid: win-x64
             platform: Windows
             arch: x64
-            cmake_target_arch: x64
+            cmake_generator_arch: x64
           - os: windows-latest
             rid: win-x86
             platform: Windows
             arch: x86
-            cmake_target_arch: Win32
+            cmake_generator_arch: Win32
           - os: windows-latest
             rid: win-arm64
             platform: Windows
             arch: ARM64
-            cmake_target_arch: ARM64
+            cmake_generator_arch: ARM64
 
-          # Linux builds
+          # Linux (GCC/Clang) - x64 is native, ARM variants are cross-compiled via Docker/QEMU.
           - os: ubuntu-22.04
             rid: linux-x64
             platform: Linux
@@ -39,12 +40,14 @@ jobs:
             rid: linux-arm64
             platform: Linux
             arch: aarch64
+            cross_compile: true
           - os: ubuntu-22.04
             rid: linux-arm
             platform: Linux
             arch: arm
+            cross_compile: true
 
-          # macOS builds
+          # macOS (Clang) - Universal binaries are avoided to produce discrete arch-specific libs.
           - os: macos-latest
             rid: osx-x64
             platform: macOS
@@ -53,8 +56,6 @@ jobs:
             rid: osx-arm64
             platform: macOS
             arch: arm64
-
-    name: Build for ${{ matrix.platform }} - ${{ matrix.arch }}
 
     steps:
       - name: Checkout repository
@@ -66,123 +67,107 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake file binutils lsb-release
-          
-          # For native x86_64 build only
-          if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            sudo apt-get install -y libasound2-dev
+          if [[ "${{ matrix.cross_compile }}" != "true" ]]; then
+            sudo apt-get install -y build-essential cmake libasound2-dev file binutils
+          else
+            sudo apt-get install -y build-essential cmake file binutils
           fi
 
-      - name: Build ARM libraries with Docker
-        if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
+      - name: Cross-Compile for Linux ARM via Docker
+        if: matrix.cross_compile
         run: |
           # Set up Docker Buildx with QEMU support
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
           # Determine the platform and image
-          if [ "${{ matrix.arch }}" == "aarch64" ]; then
+          if [[ "${{ matrix.arch }}" == "aarch64" ]]; then
             PLATFORM="linux/arm64"
             DOCKER_IMAGE="arm64v8/ubuntu:22.04"
-          elif [ "${{ matrix.arch }}" == "arm" ]; then
+          elif [[ "${{ matrix.arch }}" == "arm" ]]; then
             PLATFORM="linux/arm/v7"
             DOCKER_IMAGE="arm32v7/ubuntu:22.04"
           fi
 
           # Build using Docker with QEMU emulation
           docker run --rm --platform $PLATFORM -v $PWD:/workspace $DOCKER_IMAGE /bin/bash -c "
-            # Update and install dependencies
-            apt-get update
-            apt-get install -y build-essential cmake libasound2-dev
-
-            # Build PortMidi
+            set -ex # Fail fast inside the container
+            apt-get update && apt-get install -y build-essential cmake libasound2-dev
             cd /workspace/Native/portmidi
-            cmake -S . -B build \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_SHARED_LIBS=ON \
-              -DBUILD_PORTMIDI_TESTS=OFF
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
             cmake --build build --config Release --parallel
           "
 
-          # Copy the built library to the artifact directory
-          mkdir -p runtimes/${{ matrix.rid }}/native
-          cp Native/portmidi/build/libportmidi.so runtimes/${{ matrix.rid }}/native/
-
-      - name: Configure and Build Native (Non-ARM Linux)
-        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
-        shell: bash
+      - name: Configure & Build (Native)
+        if: '!matrix.cross_compile'
         working-directory: Native/portmidi
+        shell: bash
         run: |
+          CMAKE_ARGS=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            CMAKE_ARGS="-G \"Visual Studio 17 2022\" -A ${{ matrix.cmake_generator_arch }}"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            CMAKE_ARGS="-DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}"
+          fi
+
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_PORTMIDI_TESTS=OFF
+            -DBUILD_PORTMIDI_TESTS=OFF \
+            $CMAKE_ARGS
+
           cmake --build build --config Release --parallel
-          
-          mkdir -p ../../runtimes/${{ matrix.rid }}/native
-          cp build/libportmidi.so ../../runtimes/${{ matrix.rid }}/native/
 
-      - name: Configure and Build (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        working-directory: Native/portmidi
-        run: |
-          cmake -S . -B build \
-            -G "Visual Studio 17 2022" \
-            -A ${{ matrix.cmake_target_arch }} \
-            -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_PORTMIDI_TESTS=OFF
-          cmake --build build --config Release --parallel
-          
-          mkdir -p ../../runtimes/${{ matrix.rid }}/native
-          cp build/Release/portmidi.dll ../../runtimes/${{ matrix.rid }}/native/
-
-      - name: Configure and Build (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        working-directory: Native/portmidi
-        run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_PORTMIDI_TESTS=OFF
-          cmake --build build --config Release --parallel
-          
-          mkdir -p ../../runtimes/${{ matrix.rid }}/native
-          cp build/libportmidi.dylib ../../runtimes/${{ matrix.rid }}/native/
-
-      - name: Setup MSVC developer environment (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{ matrix.arch }}
-
-      - name: Analyze Dependencies (Windows)
-        if: runner.os == 'Windows' && matrix.arch != 'ARM64'
-        run: |
-          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
-          dumpbin /DEPENDENTS runtimes/${{ matrix.rid }}/native/portmidi.dll
-
-      - name: Analyze Dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
-          otool -L runtimes/${{ matrix.rid }}/native/libportmidi.dylib
-
-      - name: Analyze Dependencies (Linux x86_64)
-        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
+      - name: Prepare Artifact
         shell: bash
         run: |
-          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
-          ldd "runtimes/${{ matrix.rid }}/native/libportmidi.so"
+          # Consolidate artifact preparation. The source path varies slightly by platform.
+          ARTIFACT_DIR="runtimes/${{ matrix.rid }}/native"
+          mkdir -p "$ARTIFACT_DIR"
 
-      - name: Analyze Dependencies (Linux ARM)
-        if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp "Native/portmidi/build/Release/portmidi.dll" "$ARTIFACT_DIR/"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            cp "Native/portmidi/build/libportmidi.dylib" "$ARTIFACT_DIR/"
+          else # Linux
+            cp "Native/portmidi/build/libportmidi.so" "$ARTIFACT_DIR/"
+          fi
+
+          echo "Prepared artifact for ${{ matrix.rid }} in $ARTIFACT_DIR"
+          ls -l "$ARTIFACT_DIR"
+
+      - name: Analyze Dependencies and Architecture
+        if: success()
         shell: bash
         run: |
-          echo "--- Analyzing Dependencies for ${{ matrix.rid }} ---"
-          # For cross-compiled binaries, use readelf instead of ldd
-          readelf -d "runtimes/${{ matrix.rid }}/native/libportmidi.so" | grep "NEEDED"
+          LIB_PATH="runtimes/${{ matrix.rid }}/native"
+          echo "--- Analyzing Artifact for ${{ matrix.rid }} ---"
+
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # We need the MSVC dev env for dumpbin. ARM64 runners don't have it in the path by default.
+            if [[ "${{ matrix.arch }}" != "ARM64" ]]; then
+              echo "--- Architecture ---"
+              dumpbin /HEADERS "$LIB_PATH/portmidi.dll" | findstr machine
+              echo "--- Dependencies ---"
+              dumpbin /DEPENDENTS "$LIB_PATH/portmidi.dll"
+            else
+              echo "Skipping analysis for win-arm64 (dumpbin not readily available)."
+            fi
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "--- Architecture ---"
+            file "$LIB_PATH/libportmidi.dylib"
+            echo "--- Dependencies ---"
+            otool -L "$LIB_PATH/libportmidi.dylib"
+          elif [[ "$RUNNER_OS" == "Linux" ]]; then
+            echo "--- Architecture ---"
+            file "$LIB_PATH/libportmidi.so"
+            echo "--- Dependencies ---"
+            if [[ "${{ matrix.cross_compile }}" == "true" ]]; then
+              # ldd can't run on cross-compiled binaries; use readelf instead.
+              readelf -d "$LIB_PATH/libportmidi.so" | grep "NEEDED"
+            else
+              ldd "$LIB_PATH/libportmidi.so"
+            fi
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -209,26 +194,33 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build and Prepare Artifact in FreeBSD VM
+      - name: Build and Analyze in FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
           release: ${{ matrix.release }}
           arch: ${{ matrix.vm_arch }}
           usesh: true
-          prepare: |
-            pkg install -y cmake gmake alsa-lib
+          prepare: pkg install -y cmake gmake alsa-lib elfutils
           run: |
             set -ex # Exit on error and print commands
-            
-            # Build the library 
+
+            # Build the library
             cd $GITHUB_WORKSPACE/Native/portmidi
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
             cmake --build build --config Release --parallel
-            
-            # Prepare artifact directory and copy the library (inside the VM)
+
+            # Prepare artifact directory on the host
+            BUILT_LIB_PATH="$GITHUB_WORKSPACE/Native/portmidi/build/libportmidi.so"
             ARTIFACT_DIR="$GITHUB_WORKSPACE/runtimes/freebsd-${{ matrix.arch }}/native"
             mkdir -p "$ARTIFACT_DIR"
-            cp "$GITHUB_WORKSPACE/Native/portmidi/build/libportmidi.so" "$ARTIFACT_DIR/"
+            cp "$BUILT_LIB_PATH" "$ARTIFACT_DIR/"
+            
+            # --- Analyze Artifact ---
+            echo "--- Analyzing Artifact for freebsd-${{ matrix.arch }} ---"
+            echo "--- Architecture ---"
+            file "$BUILT_LIB_PATH"
+            echo "--- Dependencies ---"
+            readelf -d "$BUILT_LIB_PATH" | grep "NEEDED"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -237,9 +229,9 @@ jobs:
           path: runtimes/freebsd-${{ matrix.arch }}
 
   package:
-    name: Package all PortMidi artifacts
+    name: Package All Artifacts
     runs-on: ubuntu-latest
-    needs: [build, build-freebsd]
+    needs: [build-main, build-freebsd]
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -253,17 +245,18 @@ jobs:
             # Get the RID from the directory name (e.g., "win-x64")
             rid=$(basename "$dir")
             echo "Processing artifact for RID: $rid"
-          
+
             target_dir="runtimes/$rid"
             mkdir -p "$target_dir"
             mv "$dir"/* "$target_dir/"
           done
-          
+
           echo "Final package structure:"
           ls -R runtimes
+
           zip -r portmidi-native-libraries.zip runtimes
 
-      - name: Upload final package
+      - name: Upload Final Package
         uses: actions/upload-artifact@v4
         with:
           name: portmidi-native-libraries
