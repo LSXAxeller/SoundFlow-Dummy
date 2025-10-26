@@ -68,49 +68,82 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake file binutils lsb-release
           
-          if [ "${{ matrix.arch }}" == "aarch64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-            sudo dpkg --add-architecture arm64
-            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
-            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/arm64.list
-            sudo apt-get update
-            sudo apt-get install -y libasound2-dev:arm64
-          elif [ "${{ matrix.arch }}" == "arm" ]; then
-            sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-            sudo dpkg --add-architecture armhf
-            echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/armhf.list
-            echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/armhf.list
-            sudo apt-get update
-            sudo apt-get install -y libasound2-dev:armhf
+          # Install Docker for ARM builds
+          if [ "${{ matrix.arch }}" == "aarch64" ] || [ "${{ matrix.arch }}" == "arm" ]; then
+            sudo apt-get install -y docker.io
+            sudo usermod -aG docker $USER || true
           else
+            # For native x86_64 build
             sudo apt-get install -y libasound2-dev
           fi
 
-      - name: Configure CMake
+      - name: Build ARM libraries with Docker
+        if: runner.os == 'Linux' && (matrix.arch == 'aarch64' || matrix.arch == 'arm')
+        run: |
+          # Use sudo for Docker commands in CI
+          if [ "${{ matrix.arch }}" == "aarch64" ]; then
+            DOCKER_ARCH="arm64v8"
+          elif [ "${{ matrix.arch }}" == "arm" ]; then
+            DOCKER_ARCH="arm32v7"
+          fi
+          
+          sudo docker run --rm -v $PWD:/workspace $DOCKER_ARCH/ubuntu:22.04 /bin/bash -c "
+            apt-get update
+            apt-get install -y build-essential cmake libasound2-dev
+            cd /workspace/Native/portmidi
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
+            cmake --build build --config Release --parallel
+          "
+          
+          mkdir -p runtimes/${{ matrix.rid }}/native
+          cp Native/portmidi/build/libportmidi.so runtimes/${{ matrix.rid }}/native/
+
+      - name: Configure CMake (Non-ARM Linux)
+        if: runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm'
         shell: bash
         working-directory: Native/portmidi
         run: |
           CMAKE_FLAGS="-DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF"
-          
-          if [ "${{ runner.os }}" == "Windows" ]; then
-            cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_target_arch }} $CMAKE_FLAGS
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} $CMAKE_FLAGS
-          elif [ "${{ runner.os }}" == "Linux" ]; then
-            if [ "${{ matrix.arch }}" == "aarch64" ]; then
-              CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++"
-            elif [ "${{ matrix.arch }}" == "arm" ]; then
-              CMAKE_FLAGS="$CMAKE_FLAGS -DCMAKE_SYSTEM_PROCESSOR=arm -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++"
-            fi
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
-          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_FLAGS
 
-      - name: Build with CMake
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: Native/portmidi
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_target_arch }} -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
+
+      - name: Configure CMake (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: Native/portmidi
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} -DBUILD_SHARED_LIBS=ON -DBUILD_PORTMIDI_TESTS=OFF
+
+      - name: Build with CMake (Non-ARM Linux)
+        if: runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm'
         working-directory: Native/portmidi
         run: cmake --build build --config Release --parallel
 
-      - name: Prepare Artifact Directory
+      - name: Build with CMake (Windows)
+        if: runner.os == 'Windows'
+        working-directory: Native/portmidi
+        run: cmake --build build --config Release --parallel
+
+      - name: Build with CMake (macOS)
+        if: runner.os == 'macOS'
+        working-directory: Native/portmidi
+        run: cmake --build build --config Release --parallel
+
+      - name: Prepare Artifact Directory (Non-ARM)
+        if: runner.os != 'Linux' || (runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm')
         run: mkdir -p runtimes/${{ matrix.rid }}/native
+
+      - name: Copy Library for Artifact (Non-ARM Linux)
+        if: runner.os == 'Linux' && matrix.arch != 'aarch64' && matrix.arch != 'arm'
+        shell: bash
+        run: |
+          cp "Native/portmidi/build/libportmidi.so" "runtimes/${{ matrix.rid }}/native/"
 
       - name: Copy Library for Artifact
         shell: bash
@@ -119,8 +152,6 @@ jobs:
             cp "Native/portmidi/build/Release/portmidi.dll" "runtimes/${{ matrix.rid }}/native/"
           elif [ "${{ runner.os }}" == "macOS" ]; then
             cp "Native/portmidi/build/libportmidi.dylib" "runtimes/${{ matrix.rid }}/native/"
-          else
-            cp "Native/portmidi/build/libportmidi.so" "runtimes/${{ matrix.rid }}/native/"
           fi
 
       - name: Setup MSVC developer environment (Windows)
