@@ -126,7 +126,7 @@ jobs:
         run: brew install cmake nasm yasm pkg-config
 
       - name: Configure and Build
-        shell: ${{ runner.os == 'Windows' ? 'msys2 {0}' : 'bash' }}
+        shell: ${{ (runner.os == 'Windows' && 'msys2 {0}') || 'bash' }}
         env:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
@@ -147,11 +147,11 @@ jobs:
           cmake --build build --parallel --verbose
 
       - name: Analyze Binary
-        shell: ${{ runner.os == 'Windows' ? 'msys2 {0}' : 'bash' }}
+        shell: ${{ (runner.os == 'Windows' && 'msys2 {0}') || 'bash' }}
         env:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          # Setup Path 
+          # Setup Path
           ARTIFACT_DIR="build/runtimes/${{ matrix.rid }}/native"
           LIB_BASE_NAME="soundflow-ffmpeg"
           LIB_PATH=""
@@ -221,11 +221,11 @@ jobs:
             sudo pkg install -y cmake gmake nasm yasm pkgconf bash
             cd Native/ffmpeg-codec
 
-            # Build 
+            # Build
             echo "--- Starting build for freebsd-${{ matrix.arch }} ---"
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM=gmake
             cmake --build build --parallel --verbose
-            
+
             # Analysis
             LIB_PATH="build/runtimes/freebsd-${{ matrix.arch }}/native/libsoundflow-ffmpeg.so"
             if [[ ! -f "$LIB_PATH" ]]; then
