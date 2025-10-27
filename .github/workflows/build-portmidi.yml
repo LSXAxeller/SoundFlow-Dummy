@@ -149,15 +149,7 @@ jobs:
           echo "--- Analyzing Artifact for ${{ matrix.rid }} ---"
 
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # We need the MSVC dev env for dumpbin. ARM64 runners don't have it in the path by default.
-            if [[ "${{ matrix.arch }}" != "ARM64" ]]; then
-              echo "--- Architecture ---"
-              dumpbin /HEADERS "$LIB_PATH/portmidi.dll" | findstr machine
-              echo "--- Dependencies ---"
-              dumpbin /DEPENDENTS "$LIB_PATH/portmidi.dll"
-            else
-              echo "Skipping analysis for win-arm64 (dumpbin not readily available)."
-            fi
+            echo "Skipping analysis for Windows (dumpbin not readily available)."
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             echo "--- Architecture ---"
             file "$LIB_PATH/libportmidi.dylib"
