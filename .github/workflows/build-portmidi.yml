@@ -135,6 +135,13 @@ jobs:
           echo "Prepared artifact for ${{ matrix.rid }} in $ARTIFACT_DIR"
           ls -l "$ARTIFACT_DIR"
 
+
+      - name: Setup MSVC Developer Command Prompt
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
       - name: Analyze Dependencies and Architecture
         if: success()
         shell: bash
