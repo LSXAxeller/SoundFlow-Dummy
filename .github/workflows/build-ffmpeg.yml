@@ -6,14 +6,11 @@ on:
     paths:
       - 'Native/ffmpeg-codec/**'
 
-# Prevents wasting runner minutes by cancelling in-progress runs on new commits.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # This job builds for all platforms using a single, comprehensive matrix.
-  # Each matrix entry acts as a configuration block for a specific build target.
   build:
     name: Build for ${{ matrix.rid }}
     runs-on: ${{ matrix.os }}
@@ -129,13 +126,11 @@ jobs:
         run: brew install cmake nasm yasm pkg-config
 
       - name: Configure and Build
-        shell: ${{ matrix.platform == 'windows' && 'msys2 {0}' || 'bash' }}
+        shell: ${{ runner.os == 'Windows' ? 'msys2 {0}' : 'bash' }}
         env:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          # Exit immediately if any command fails.
-          set -e
-
+          set -e # Exit immediately if any command fails.
           CMAKE_ARGS=""
           if [[ "${{ matrix.platform }}" == "windows" ]]; then
             CMAKE_ARGS="-G \"MinGW Makefiles\" -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }}"
@@ -148,50 +143,56 @@ jobs:
           elif [[ "${{ matrix.platform }}" == "ios" ]]; then
             CMAKE_ARGS="-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"
           fi
-
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_ARGS
           cmake --build build --parallel --verbose
 
-      - name: Analyze Dependencies
-        shell: ${{ matrix.platform == 'windows' && 'msys2 {0}' || 'bash' }}
+      - name: Analyze Binary
+        shell: ${{ runner.os == 'Windows' ? 'msys2 {0}' : 'bash' }}
         env:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
+          # Setup Path 
           ARTIFACT_DIR="build/runtimes/${{ matrix.rid }}/native"
-          echo "--- Analyzing artifacts in $ARTIFACT_DIR ---"
+          LIB_BASE_NAME="soundflow-ffmpeg"
+          LIB_PATH=""
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            LIB_PATH="$ARTIFACT_DIR/$LIB_BASE_NAME.dll"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            LIB_PATH="$ARTIFACT_DIR/lib$LIB_BASE_NAME.dylib"
+          else # Linux, Android
+            LIB_PATH="$ARTIFACT_DIR/lib$LIB_BASE_NAME.so"
+          fi
+          if [[ ! -f "$LIB_PATH" ]]; then
+            echo "::error::Expected library not found at: $LIB_PATH"
+            exit 1
+          fi
 
-          # Determine the library extension
-          EXT=""
-          if [[ "${{ matrix.platform }}" == "windows" ]]; then EXT="dll";
-          elif [[ "${{ matrix.platform }}" == "macos" || "${{ matrix.platform }}" == "ios" ]]; then EXT="dylib";
-          else EXT="so"; fi
+          # Analyze Architecture
+          echo "=========================================="
+          echo "Analyzing Architecture for ${{ matrix.rid }}"
+          echo "=========================================="
+          file "$LIB_PATH"
 
-          for lib in $ARTIFACT_DIR/*.$EXT; do
-            if [[ ! -f "$lib" ]]; then continue; fi
-
-            echo "=========================================="
-            echo "Analyzing: $(basename "$lib")"
-            echo "=========================================="
-            file "$lib"
-
-            echo -e "\n=== Dependencies ==="
-            if [[ "${{ matrix.platform }}" == "windows" ]]; then
-              objdump -p "$lib" | grep "DLL Name:" || echo "No DLL dependencies found."
-            elif [[ "${{ matrix.platform }}" == "macos" || "${{ matrix.platform }}" == "ios" ]]; then
-              otool -L "$lib"
-            elif [[ "${{ matrix.platform }}" == "android" ]]; then
-              "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$lib" | grep "NEEDED" || echo "No dependencies found."
-            elif [[ "${{ matrix.rid }}" == "linux-x64" ]]; then
-              ldd "$lib" || echo "ldd failed."
-            else
-              readelf -d "$lib" | grep "NEEDED" || echo "No dependencies found."
-            fi
-          done
+          # --- Analyze Dependencies ---
+          echo -e "\n=========================================="
+          echo "Analyzing Dependencies for ${{ matrix.rid }}"
+          echo "=========================================="
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            objdump -p "$LIB_PATH" | grep "DLL Name:" || echo "No DLL dependencies found."
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            otool -L "$LIB_PATH"
+          elif [[ "${{ matrix.platform }}" == "android" ]]; then
+            "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$LIB_PATH" | grep "NEEDED" || echo "No dependencies found."
+          elif [[ "${{ matrix.rid }}" == "linux-x64" ]]; then
+            ldd "$LIB_PATH" || echo "ldd failed."
+          else # Cross-compiled Linux
+            readelf -d "$LIB_PATH" | grep "NEEDED" || echo "No dependencies found."
+          fi
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ffmpeg-${{ matrix.rid }}
+          name: soundflow-ffmpeg-${{ matrix.rid }}
           path: Native/ffmpeg-codec/build/runtimes/${{ matrix.rid }}/native/*
 
   build-freebsd:
@@ -215,29 +216,37 @@ jobs:
           version: '14.0'
           architecture: ${{ matrix.vm_arch }}
           run: |
-            set -ex # Fail fast and print commands
-
-            # Install build dependencies inside the VM
+            set -ex
+            # Setup
             sudo pkg install -y cmake gmake nasm yasm pkgconf bash
-
-            # Configure and build
             cd Native/ffmpeg-codec
+
+            # Build 
+            echo "--- Starting build for freebsd-${{ matrix.arch }} ---"
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM=gmake
             cmake --build build --parallel --verbose
+            
+            # Analysis
+            LIB_PATH="build/runtimes/freebsd-${{ matrix.arch }}/native/libsoundflow-ffmpeg.so"
+            if [[ ! -f "$LIB_PATH" ]]; then
+              echo "::error::Expected library not found at: $LIB_PATH"
+              exit 1
+            fi
 
-            ARTIFACT_DIR="build/runtimes/freebsd-${{ matrix.arch }}/native"
-            echo "--- Analyzing artifacts in $ARTIFACT_DIR ---"
-            for lib in $ARTIFACT_DIR/*.so; do
-              if [[ -f "$lib" ]]; then
-                echo "--- Analyzing: $(basename "$lib") ---"
-                file "$lib" && ldd "$lib" || echo "Analysis failed."
-              fi
-            done
+            echo "=========================================="
+            echo "Analyzing Architecture for freebsd-${{ matrix.arch }}"
+            echo "=========================================="
+            file "$LIB_PATH"
+
+            echo -e "\n=========================================="
+            echo "Analyzing Dependencies for freebsd-${{ matrix.arch }}"
+            echo "=========================================="
+            ldd "$LIB_PATH"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ffmpeg-freebsd-${{ matrix.arch }}
+          name: soundflow-ffmpeg-freebsd-${{ matrix.arch }}
           path: Native/ffmpeg-codec/build/runtimes/freebsd-${{ matrix.arch }}/native/*
 
   package:
@@ -249,18 +258,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
-          pattern: ffmpeg-*
+          pattern: soundflow-ffmpeg-*
           merge-multiple: true
 
       - name: Reorganize and Package
         run: |
           mkdir runtimes
-          for rid_dir in artifacts/*; do
-            rid=$(basename "$rid_dir")
+          for artifact_dir in artifacts/*; do
+            artifact_name=$(basename "$artifact_dir")
+            rid="${artifact_name#soundflow-ffmpeg-}"
+
             echo "Processing artifact for RID: $rid"
             target_dir="runtimes/$rid/native"
             mkdir -p "$target_dir"
-            mv "$rid_dir"/* "$target_dir/"
+            mv "$artifact_dir"/* "$target_dir/"
           done
 
           echo "Final package structure:"
