@@ -102,18 +102,18 @@ jobs:
         working-directory: Native/portmidi
         shell: bash
         run: |
-          CMAKE_ARGS=""
+          CMAKE_ARGS=()
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            CMAKE_ARGS="-G \"Visual Studio 17 2022\" -A ${{ matrix.cmake_generator_arch }}"
+            CMAKE_ARGS+=("-G" "Visual Studio 17 2022" "-A" "${{ matrix.cmake_generator_arch }}")
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            CMAKE_ARGS="-DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}"
+            CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}")
           fi
 
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_PORTMIDI_TESTS=OFF \
-            $CMAKE_ARGS
+            "${CMAKE_ARGS[@]}"
 
           cmake --build build --config Release --parallel
 
