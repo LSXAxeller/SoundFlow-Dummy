@@ -90,6 +90,7 @@ jobs:
 
     defaults:
       run:
+        shell: ${{ matrix.platform == 'windows' && 'msys2 {0}' || 'bash' }}
         working-directory: Native/ffmpeg-codec
 
     steps:
@@ -126,7 +127,6 @@ jobs:
         run: brew install cmake nasm yasm pkg-config
 
       - name: Configure and Build
-        shell: ${{ (runner.os == 'Windows' && 'msys2 {0}') || 'bash' }}
         env:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
@@ -147,7 +147,6 @@ jobs:
           cmake --build build --parallel --verbose
 
       - name: Analyze Binary
-        shell: ${{ (runner.os == 'Windows' && 'msys2 {0}') || 'bash' }}
         env:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
