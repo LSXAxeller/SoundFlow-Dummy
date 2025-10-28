@@ -59,16 +59,15 @@ internal sealed unsafe class MiniAudioEncoder : ISoundEncoder
                 return 0;
 
             var framesToWrite = (ulong)(samples.Length / _channels);
-            ulong framesWritten = 0;
 
             fixed (float* pSamples = samples)
             {
-                var result = Native.EncoderWritePcmFrames(_encoder, (nint)pSamples, framesToWrite, &framesWritten);
+                var result = Native.EncoderWritePcmFrames(_encoder, (nint)pSamples, framesToWrite, out var framesWritten);
                 if (result != Result.Success)
                     throw new MiniaudioException("MiniAudio", result, "Failed to write PCM frames to encoder.");
+                
+                return (int)framesWritten * _channels;
             }
-
-            return (int)framesWritten * _channels;
         }
     }
 
@@ -94,20 +93,20 @@ internal sealed unsafe class MiniAudioEncoder : ISoundEncoder
     /// MiniAudio provides the encoded data in <paramref name="pBufferIn"/>,
     /// which is then written to the internal <see cref="_stream"/>.
     /// </summary>
-    private Result WriteCallback(nint pEncoder, nint pBufferIn, ulong bytesToWrite, out ulong* pBytesWritten)
+    private Result WriteCallback(nint pEncoder, nint pBufferIn, ulong bytesToWrite, out ulong pBytesWritten)
     {
         lock (_syncLock)
         {
             if (!_stream.CanWrite)
             {
-                pBytesWritten = (ulong*)0;
+                pBytesWritten = 0;
                 return Result.NoDataAvailable;
             }
 
             var bytes = new ReadOnlySpan<byte>((void*)pBufferIn, (int)bytesToWrite);
             _stream.Write(bytes);
             
-            pBytesWritten = (ulong*)bytesToWrite;
+            pBytesWritten = bytesToWrite;
             return Result.Success;
         }
     }

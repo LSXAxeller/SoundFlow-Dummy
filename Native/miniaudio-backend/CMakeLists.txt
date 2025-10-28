@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.26)
-project(miniaudio)
+project(miniaudio C)
 
-set(CMAKE_CXX_STANDARD 26)
+set(CMAKE_C_STANDARD 11)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -10,7 +10,7 @@ set(LIBRARY_NAME "miniaudio")
 
 # Building Shared Library
 add_library(${LIBRARY_NAME} SHARED
-        library.cpp
+        library.c
         library.h
         miniaudio/miniaudio.h)
 
@@ -18,17 +18,20 @@ add_library(${LIBRARY_NAME} SHARED
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     add_definitions(-DMA_DLL)
 
+    if (MSVC)
+        add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+    endif()
+
     if (CMAKE_COMPILER_IS_GNUCC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -static-libgcc")
 
         target_link_libraries(${LIBRARY_NAME}
                 -static
                 gcc
-                stdc++
                 winpthread
                 -dynamic
         )
-    endif()
+    endif ()
 
     # Windows: miniaudio.dll
     set_target_properties(${LIBRARY_NAME} PROPERTIES
@@ -37,7 +40,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     )
 
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -static-libgcc")
 
     target_link_libraries(${LIBRARY_NAME}
             dl
@@ -78,9 +81,6 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Define MA_NO_RUNTIME_LINKING for iOS builds
     add_definitions(-DMA_NO_RUNTIME_LINKING)
 
-    # Use Objective-C++ for library.cpp file.
-    set_source_files_properties(library.cpp PROPERTIES LANGUAGE OBJCXX)
-
     # Link with frameworks
     target_link_libraries(${LIBRARY_NAME}
             "-framework CoreFoundation"
@@ -119,4 +119,4 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
             SUFFIX ".js"             # Emscripten will generate .js and .wasm
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     )
-endif()
+endif ()

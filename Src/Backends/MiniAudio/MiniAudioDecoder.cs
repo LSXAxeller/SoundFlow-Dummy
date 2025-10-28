@@ -81,43 +81,41 @@ internal sealed unsafe class MiniAudioDecoder : ISoundDecoder
             
             var buffer = GetBufferIfNeeded(samples.Length);
             var span = buffer ?? MemoryMarshal.AsBytes(samples);
-            ulong framesRead;
             Result result;
 
             fixed (byte* nativeBuffer = span)
             {
-                result = Native.DecoderReadPcmFrames(_decoder, (nint)nativeBuffer, framesToRead, out framesRead);
-            }
+                result = Native.DecoderReadPcmFrames(_decoder, (nint)nativeBuffer, framesToRead, out var framesRead);
 
+                // If we reached the end of the stream, set the flag and return 0
+                if (result == Result.AtEnd)
+                {
+                    _endOfStreamReached = true;
+                }
+                // Check for actual errors, ignoring the clean AtEnd result.
+                else if (result != Result.Success)
+                {
+                    _endOfStreamReached = true;
+                    return 0;
+                }
 
-            // If we reached the end of the stream, set the flag and return 0
-            if (result == Result.AtEnd)
-            {
-                _endOfStreamReached = true;
-            }
-            // Check for actual errors, ignoring the clean AtEnd result.
-            else if (result != Result.Success) 
-            {
-                _endOfStreamReached = true;
-                return 0;
-            }
+                if (framesRead == 0 && _endOfStreamReached)
+                {
+                    EndOfStreamReached?.Invoke(this, EventArgs.Empty);
+                }
 
-            if (framesRead == 0 && _endOfStreamReached)
-            {
-                EndOfStreamReached?.Invoke(this, EventArgs.Empty);
-            }
+                if (framesRead == 0)
+                {
+                    // If we got here, it means no frames were read, and it wasn't an error, so we're done.
+                    if (buffer is not null) ArrayPool<byte>.Shared.Return(buffer);
+                    return 0;
+                }
 
-            if (framesRead == 0)
-            {
-                // If we got here, it means no frames were read, and it wasn't an error, so we're done.
+                if (SampleFormat is not SampleFormat.F32) ConvertToFloat(samples, framesRead, span);
                 if (buffer is not null) ArrayPool<byte>.Shared.Return(buffer);
-                return 0;
-            }
-            
-            if (SampleFormat is not SampleFormat.F32) ConvertToFloat(samples, framesRead, span);
-            if (buffer is not null) ArrayPool<byte>.Shared.Return(buffer);
 
-            return (int)framesRead * Channels;
+                return (int)framesRead * Channels;
+            }
         }
     }
 
@@ -204,13 +202,13 @@ internal sealed unsafe class MiniAudioDecoder : ISoundDecoder
         Dispose(false);
     }
 
-    private Result ReadCallback(nint pDecoder, nint pBufferOut, ulong bytesToRead, out ulong* pBytesRead)
+    private Result ReadCallback(nint pDecoder, nint pBufferOut, ulong bytesToRead, out ulong pBytesRead)
     {
         lock (_syncLock)
         {
             if (!_stream.CanRead)
             {
-                pBytesRead = (ulong*)0;
+                pBytesRead = 0;
                 return Result.NoDataAvailable;
             }
 
@@ -232,7 +230,7 @@ internal sealed unsafe class MiniAudioDecoder : ISoundDecoder
             // Clear read buffer
             Array.Clear(_readBuffer, 0, _readBuffer.Length);
 
-            pBytesRead = (ulong*)read;
+            pBytesRead = (ulong)read;
             return Result.Success;
         }
     }

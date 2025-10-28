@@ -165,7 +165,7 @@ public sealed class Sequencer : SoundComponent
             {
                 _target.ProcessMidiMessage(channelEvent.Message);
             }
-            // Meta and SysEx events are ignored for now.
+            // TODO: Meta and SysEx events are ignored for now.
         }
 
         _currentTick = endTick;

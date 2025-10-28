@@ -34,6 +34,10 @@ public class MiniAudioEngine : AudioEngine
     /// <summary>
     /// Gets the low-level audio backend that was successfully initialized and is currently active.
     /// </summary>
+    /// <remarks>
+    /// This property will be null if the user didn't pass the preferred backends array while creating the engine.
+    /// In this case, MiniAudio will automatically select a backend and won't return it back.
+    /// </remarks>
     public MiniAudioBackend ActiveBackend { get; private set; }
 
     static MiniAudioEngine()
@@ -79,7 +83,12 @@ public class MiniAudioEngine : AudioEngine
         }
         else if (OperatingSystem.IsFreeBSD())
         {
-            AvailableBackends = [MiniAudioBackend.Oss];
+            AvailableBackends =
+            [
+                MiniAudioBackend.Oss,
+                MiniAudioBackend.Sndio,
+                MiniAudioBackend.PulseAudio
+            ];
         }
         else
         {
@@ -315,29 +324,7 @@ public class MiniAudioEngine : AudioEngine
 
         return newDevice;
     }
-
-    /// <inheritdoc />
-    public override MidiInputDevice CreateMidiInputDevice(MidiDeviceInfo deviceInfo)
-    {
-        throw new NotImplementedException(
-            "This audio engine backend does not support MIDI. Please use a MIDI-capable engine.");
-    }
-
-    /// <inheritdoc />
-    public override MidiOutputDevice CreateMidiOutputDevice(MidiDeviceInfo deviceInfo)
-    {
-        throw new NotImplementedException(
-            "This audio engine backend does not support MIDI. Please use a MIDI-capable engine.");
-    }
-
-    /// <inheritdoc />
-    public override void UpdateMidiDevicesInfo()
-    {
-        // MiniAudio does not handle MIDI devices. This will be implemented in a dedicated MIDI backend.
-        MidiInputDevices = [];
-        MidiOutputDevices = [];
-    }
-
+    
     private void OnDeviceDisposing(object? sender, EventArgs e)
     {
         if (sender is AudioDevice device)
@@ -346,7 +333,7 @@ public class MiniAudioEngine : AudioEngine
         }
     }
 
-    private MiniAudioDeviceConfig GetDefaultDeviceConfig()
+    private static MiniAudioDeviceConfig GetDefaultDeviceConfig()
     {
         return new MiniAudioDeviceConfig
         {
@@ -366,13 +353,11 @@ public class MiniAudioEngine : AudioEngine
     public override void UpdateAudioDevicesInfo()
     {
         var result = Native.GetDevices(_context, out var pPlaybackDevices, out var pCaptureDevices,
-            out var playbackDeviceCountNint, out var captureDeviceCountNint);
+            out var playbackCountUint, out var captureCountUint);
 
         if (result != Result.Success)
             throw new InvalidOperationException($"Unable to get devices. MiniAudio result: {result}");
-
-        var playbackCountUint = (uint)playbackDeviceCountNint;
-        var captureCountUint = (uint)captureDeviceCountNint;
+        
         var playbackCount = (int)playbackCountUint;
         var captureCount = (int)captureCountUint;
 

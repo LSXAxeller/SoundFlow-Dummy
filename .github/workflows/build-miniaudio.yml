@@ -1,4 +1,4 @@
-name: Build Native Library
+name: Build Miniaudio Native Library
 
 on:
   workflow_dispatch:
@@ -475,10 +475,10 @@ jobs:
         run: |
           mkdir -p runtimes
           cp -r artifacts/* runtimes/
-          zip -r native-libraries.zip runtimes
+          zip -r miniaudio-native-libraries.zip runtimes
 
       - name: Upload final package
         uses: actions/upload-artifact@v4
         with:
-          name: native-libraries
-          path: native-libraries.zip
+          name: miniaudio-native-libraries
+          path: miniaudio-native-libraries.zip

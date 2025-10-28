@@ -1,64 +1,67 @@
 ﻿#define MINIAUDIO_IMPLEMENTATION
 
 #include "library.h"
+#include <string.h>
 
 // Helper macro for memory allocation
-#define sf_create(t) static_cast<t*>(ma_malloc(sizeof(t), nullptr))
+#define sf_create(t) (t*)ma_malloc(sizeof(t), NULL)
 
-// Helper function to safely convert and copy a multibyte string to a wide-character string
-static void sf_safe_mbstowcs(wchar_t* dest, const char* src, const size_t dest_size_in_wchars) {
-    if (dest == nullptr) {
+// Helper function to safely copy a UTF-8 string
+static void sf_safe_strcpy(char* dest, const char* src) {
+    if (dest == NULL) {
         return;
     }
 
-    // Convert the multibyte string to a wide-character string
-    mbstowcs(dest, src, dest_size_in_wchars);
+    const size_t dest_size = MA_MAX_DEVICE_NAME_LENGTH + 1;
+
+    // Copy the UTF-8 string. Miniaudio provides names in UTF-8.
+    strncpy(dest, src, dest_size);
 
     // Ensure the destination is null-terminated for safety.
-    dest[dest_size_in_wchars - 1] = L'\0';
+    dest[dest_size - 1] = '\0';
 }
 
 // Helper function to create device info structure - eliminates code duplication
-static sf_device_info sf_create_device_info(const ma_device_info* pDeviceInfo) {
-    sf_device_info deviceInfo;
+static struct sf_device_info sf_create_device_info(const ma_device_info* pBasicInfo, const ma_device_info* pFullInfo) {
+    struct sf_device_info deviceInfo;
 
-    if (pDeviceInfo == nullptr) {
+    if (pBasicInfo == NULL || pFullInfo == NULL) {
         memset(&deviceInfo, 0, sizeof(deviceInfo));
         return deviceInfo;
     }
 
-    deviceInfo.id = const_cast<ma_device_id*>(&pDeviceInfo->id);
-    sf_safe_mbstowcs(deviceInfo.name, pDeviceInfo->name, MA_MAX_DEVICE_NAME_LENGTH + 1);
-    deviceInfo.isDefault = pDeviceInfo->isDefault;
-    deviceInfo.nativeDataFormatCount = pDeviceInfo->nativeDataFormatCount;
+    deviceInfo.id = (ma_device_id*)(&pBasicInfo->id);
+
+    // Use the rest of the information from the full info struct.
+    sf_safe_strcpy(deviceInfo.name, pFullInfo->name);
+    deviceInfo.isDefault = pFullInfo->isDefault;
+    deviceInfo.nativeDataFormatCount = pFullInfo->nativeDataFormatCount;
 
     if (deviceInfo.nativeDataFormatCount > 0) {
-        deviceInfo.nativeDataFormats = static_cast<native_data_format*>(
-            ma_malloc(sizeof(native_data_format) * deviceInfo.nativeDataFormatCount, nullptr));
+        deviceInfo.nativeDataFormats = (struct native_data_format*)(
+            ma_malloc(sizeof(struct native_data_format) * deviceInfo.nativeDataFormatCount, NULL));
 
-        if (deviceInfo.nativeDataFormats != nullptr) {
+        if (deviceInfo.nativeDataFormats != NULL) {
             for (ma_uint32 i = 0; i < deviceInfo.nativeDataFormatCount; ++i) {
-                deviceInfo.nativeDataFormats[i].format = pDeviceInfo->nativeDataFormats[i].format;
-                deviceInfo.nativeDataFormats[i].channels = pDeviceInfo->nativeDataFormats[i].channels;
-                deviceInfo.nativeDataFormats[i].sampleRate = pDeviceInfo->nativeDataFormats[i].sampleRate;
-                deviceInfo.nativeDataFormats[i].flags = pDeviceInfo->nativeDataFormats[i].flags;
+                deviceInfo.nativeDataFormats[i].format = pFullInfo->nativeDataFormats[i].format;
+                deviceInfo.nativeDataFormats[i].channels = pFullInfo->nativeDataFormats[i].channels;
+                deviceInfo.nativeDataFormats[i].sampleRate = pFullInfo->nativeDataFormats[i].sampleRate;
+                deviceInfo.nativeDataFormats[i].flags = pFullInfo->nativeDataFormats[i].flags;
             }
         } else {
             // Memory allocation failed, reset count
             deviceInfo.nativeDataFormatCount = 0;
         }
     } else {
-        deviceInfo.nativeDataFormats = nullptr;
+        deviceInfo.nativeDataFormats = NULL;
     }
 
     return deviceInfo;
 }
 
-extern "C" {
-
 // Frees a structure allocated with sf_create().
 MA_API void sf_free(void *ptr) {
-    ma_free(ptr, nullptr);
+    ma_free(ptr, NULL);
 }
 
 // Allocate memory for a decoder struct.
@@ -82,10 +85,10 @@ MA_API ma_context *sf_allocate_context() {
 }
 
 // Allocate memory for a device configuration struct.
-MA_API ma_device_config* sf_allocate_device_config(const ma_device_type deviceType, const ma_uint32 sampleRate, const ma_device_data_proc onData, const sf_DeviceConfig* pSfConfig) {
-    auto config = sf_create(ma_device_config);
-    if (config == nullptr) {
-        return nullptr;
+MA_API ma_device_config* sf_allocate_device_config(const ma_device_type deviceType, const ma_uint32 sampleRate, const ma_device_data_proc onData, const struct sf_DeviceConfig* pSfConfig) {
+    ma_device_config* config = sf_create(ma_device_config);
+    if (config == NULL) {
+        return NULL;
     }
 
     // Initialize with miniaudio defaults
@@ -93,11 +96,11 @@ MA_API ma_device_config* sf_allocate_device_config(const ma_device_type deviceTy
 
     // Basic setup from non-DTO parameters
     config->dataCallback = onData;
-    config->pUserData = nullptr;
+    config->pUserData = NULL;
     config->sampleRate = sampleRate;
 
     // Apply settings from the config DTO if it's provided.
-    if (pSfConfig != nullptr) {
+    if (pSfConfig != NULL) {
         // General settings
         config->periodSizeInFrames = pSfConfig->periodSizeInFrames;
         config->periodSizeInMilliseconds = pSfConfig->periodSizeInMilliseconds;
@@ -108,13 +111,13 @@ MA_API ma_device_config* sf_allocate_device_config(const ma_device_type deviceTy
         config->noFixedSizedCallback = pSfConfig->noFixedSizedCallback;
 
         // Playback and Capture sub-configs
-        if (pSfConfig->playback != nullptr) {
+        if (pSfConfig->playback != NULL) {
             config->playback.format = pSfConfig->playback->format;
             config->playback.channels = pSfConfig->playback->channels;
             config->playback.pDeviceID = pSfConfig->playback->pDeviceID;
             config->playback.shareMode = pSfConfig->playback->shareMode;
         }
-        if (pSfConfig->capture != nullptr) {
+        if (pSfConfig->capture != NULL) {
             config->capture.format = pSfConfig->capture->format;
             config->capture.channels = pSfConfig->capture->channels;
             config->capture.pDeviceID = pSfConfig->capture->pDeviceID;
@@ -122,31 +125,31 @@ MA_API ma_device_config* sf_allocate_device_config(const ma_device_type deviceTy
         }
 
         // Backend-specific settings
-        if (pSfConfig->wasapi != nullptr) {
+        if (pSfConfig->wasapi != NULL) {
             config->wasapi.usage = pSfConfig->wasapi->usage;
             config->wasapi.noAutoConvertSRC = pSfConfig->wasapi->noAutoConvertSRC;
             config->wasapi.noDefaultQualitySRC = pSfConfig->wasapi->noDefaultQualitySRC;
             config->wasapi.noAutoStreamRouting = pSfConfig->wasapi->noAutoStreamRouting;
             config->wasapi.noHardwareOffloading = pSfConfig->wasapi->noHardwareOffloading;
         }
-        if (pSfConfig->coreaudio != nullptr) {
+        if (pSfConfig->coreaudio != NULL) {
             config->coreaudio.allowNominalSampleRateChange = pSfConfig->coreaudio->allowNominalSampleRateChange;
         }
-        if (pSfConfig->alsa != nullptr) {
+        if (pSfConfig->alsa != NULL) {
             config->alsa.noMMap = pSfConfig->alsa->noMMap;
             config->alsa.noAutoFormat = pSfConfig->alsa->noAutoFormat;
             config->alsa.noAutoChannels = pSfConfig->alsa->noAutoChannels;
             config->alsa.noAutoResample = pSfConfig->alsa->noAutoResample;
         }
-        if (pSfConfig->pulse != nullptr) {
+        if (pSfConfig->pulse != NULL) {
             config->pulse.pStreamNamePlayback = pSfConfig->pulse->pStreamNamePlayback;
             config->pulse.pStreamNameCapture = pSfConfig->pulse->pStreamNameCapture;
         }
-        if (pSfConfig->opensl != nullptr) {
+        if (pSfConfig->opensl != NULL) {
             config->opensl.streamType = pSfConfig->opensl->streamType;
             config->opensl.recordingPreset = pSfConfig->opensl->recordingPreset;
         }
-        if (pSfConfig->aaudio != nullptr) {
+        if (pSfConfig->aaudio != NULL) {
             config->aaudio.usage = pSfConfig->aaudio->usage;
             config->aaudio.contentType = pSfConfig->aaudio->contentType;
             config->aaudio.inputPreset = pSfConfig->aaudio->inputPreset;
@@ -166,9 +169,9 @@ MA_API ma_device_config* sf_allocate_device_config(const ma_device_type deviceTy
 // Allocate memory for a decoder configuration struct.
 MA_API ma_decoder_config *sf_allocate_decoder_config(const ma_format outputFormat, const ma_uint32 outputChannels,
                                                      const ma_uint32 outputSampleRate) {
-    auto *pConfig = sf_create(ma_decoder_config);
-    if (pConfig == nullptr) {
-        return nullptr;
+    ma_decoder_config *pConfig = sf_create(ma_decoder_config);
+    if (pConfig == NULL) {
+        return NULL;
     }
 
     MA_ZERO_OBJECT(pConfig);
@@ -180,9 +183,9 @@ MA_API ma_decoder_config *sf_allocate_decoder_config(const ma_format outputForma
 // Allocate memory for an encoder configuration struct.
 MA_API ma_encoder_config *sf_allocate_encoder_config(const ma_format format,
                                                      const ma_uint32 channels, const ma_uint32 sampleRate) {
-    auto pConfig = sf_create(ma_encoder_config);
-    if (pConfig == nullptr) {
-        return nullptr;
+    ma_encoder_config *pConfig = sf_create(ma_encoder_config);
+    if (pConfig == NULL) {
+        return NULL;
     }
 
     MA_ZERO_OBJECT(pConfig);
@@ -192,37 +195,37 @@ MA_API ma_encoder_config *sf_allocate_encoder_config(const ma_format format,
 }
 
 // Frees memory allocated for an array of device infos.
-MA_API void sf_free_device_infos(sf_device_info* deviceInfos, const ma_uint32 count) {
-    if (deviceInfos == nullptr) {
+MA_API void sf_free_device_infos(struct sf_device_info* deviceInfos, const ma_uint32 count) {
+    if (deviceInfos == NULL) {
         return;
     }
 
     for (ma_uint32 i = 0; i < count; ++i) {
-        if (deviceInfos[i].nativeDataFormats != nullptr) {
-            ma_free(deviceInfos[i].nativeDataFormats, nullptr);
+        if (deviceInfos[i].nativeDataFormats != NULL) {
+            ma_free(deviceInfos[i].nativeDataFormats, NULL);
         }
     }
-    ma_free(deviceInfos, nullptr);
+    ma_free(deviceInfos, NULL);
 }
 
 // Retrieves a list of available devices.
-MA_API ma_result sf_get_devices(ma_context *context, sf_device_info **ppPlaybackDeviceInfos,
-                         sf_device_info **ppCaptureDeviceInfos, ma_uint32 *pPlaybackDeviceCount,
+MA_API ma_result sf_get_devices(ma_context *context, struct sf_device_info **ppPlaybackDeviceInfos,
+                         struct sf_device_info **ppCaptureDeviceInfos, ma_uint32 *pPlaybackDeviceCount,
                          ma_uint32 *pCaptureDeviceCount) {
     // Validate input parameters
-    if (context == nullptr || ppPlaybackDeviceInfos == nullptr || ppCaptureDeviceInfos == nullptr ||
-        pPlaybackDeviceCount == nullptr || pCaptureDeviceCount == nullptr) {
+    if (context == NULL || ppPlaybackDeviceInfos == NULL || ppCaptureDeviceInfos == NULL ||
+        pPlaybackDeviceCount == NULL || pCaptureDeviceCount == NULL) {
         return MA_INVALID_ARGS;
     }
 
     // Initialize output parameters
-    *ppPlaybackDeviceInfos = nullptr;
-    *ppCaptureDeviceInfos = nullptr;
+    *ppPlaybackDeviceInfos = NULL;
+    *ppCaptureDeviceInfos = NULL;
     *pPlaybackDeviceCount = 0;
     *pCaptureDeviceCount = 0;
 
-    ma_device_info *pEnumeratedPlaybackDevices = nullptr;
-    ma_device_info *pEnumeratedCaptureDevices = nullptr;
+    ma_device_info *pEnumeratedPlaybackDevices = NULL;
+    ma_device_info *pEnumeratedCaptureDevices = NULL;
 
     // Enumerate devices to get their IDs and names.
     const ma_result result = ma_context_get_devices(context,
@@ -236,11 +239,11 @@ MA_API ma_result sf_get_devices(ma_context *context, sf_device_info **ppPlayback
     }
 
     // Handle playback devices
-    if (*pPlaybackDeviceCount > 0 && pEnumeratedPlaybackDevices != nullptr) {
-        *ppPlaybackDeviceInfos = static_cast<sf_device_info*>(
-            ma_malloc(sizeof(sf_device_info) * *pPlaybackDeviceCount, nullptr));
+    if (*pPlaybackDeviceCount > 0 && pEnumeratedPlaybackDevices != NULL) {
+        *ppPlaybackDeviceInfos = (struct sf_device_info*)(
+            ma_malloc(sizeof(struct sf_device_info) * *pPlaybackDeviceCount, NULL));
 
-        if (*ppPlaybackDeviceInfos == nullptr) {
+        if (*ppPlaybackDeviceInfos == NULL) {
             return MA_OUT_OF_MEMORY;
         }
 
@@ -252,20 +255,20 @@ MA_API ma_result sf_get_devices(ma_context *context, sf_device_info **ppPlayback
             // Use the full info if successful, otherwise fall back to the basic enumerated info.
             const ma_device_info* pSourceInfo = infoResult == MA_SUCCESS ? &fullDeviceInfo : &pEnumeratedPlaybackDevices[iDevice];
 
-            (*ppPlaybackDeviceInfos)[iDevice] = sf_create_device_info(pSourceInfo);
+            (*ppPlaybackDeviceInfos)[iDevice] = sf_create_device_info(&pEnumeratedPlaybackDevices[iDevice], pSourceInfo);
         }
     }
 
     // Handle capture devices
-    if (*pCaptureDeviceCount > 0 && pEnumeratedCaptureDevices != nullptr) {
-        *ppCaptureDeviceInfos = static_cast<sf_device_info*>(
-            ma_malloc(sizeof(sf_device_info) * *pCaptureDeviceCount, nullptr));
+    if (*pCaptureDeviceCount > 0 && pEnumeratedCaptureDevices != NULL) {
+        *ppCaptureDeviceInfos = (struct sf_device_info*)(
+            ma_malloc(sizeof(struct sf_device_info) * *pCaptureDeviceCount, NULL));
 
-        if (*ppCaptureDeviceInfos == nullptr) {
+        if (*ppCaptureDeviceInfos == NULL) {
             // Clean up playback devices on failure
-            if (*ppPlaybackDeviceInfos != nullptr) {
+            if (*ppPlaybackDeviceInfos != NULL) {
                 sf_free_device_infos(*ppPlaybackDeviceInfos, *pPlaybackDeviceCount);
-                *ppPlaybackDeviceInfos = nullptr;
+                *ppPlaybackDeviceInfos = NULL;
                 *pPlaybackDeviceCount = 0;
             }
             return MA_OUT_OF_MEMORY;
@@ -279,7 +282,7 @@ MA_API ma_result sf_get_devices(ma_context *context, sf_device_info **ppPlayback
             // Use the full info if successful, otherwise fall back to the basic enumerated info.
             const ma_device_info* pSourceInfo = infoResult == MA_SUCCESS ? &fullDeviceInfo : &pEnumeratedCaptureDevices[iDevice];
 
-            (*ppCaptureDeviceInfos)[iDevice] = sf_create_device_info(pSourceInfo);
+            (*ppCaptureDeviceInfos)[iDevice] = sf_create_device_info(&pEnumeratedCaptureDevices[iDevice], pSourceInfo);
         }
     }
 
@@ -287,13 +290,11 @@ MA_API ma_result sf_get_devices(ma_context *context, sf_device_info **ppPlayback
 }
 
 // Returns the backend used by the context.
-MA_API ma_backend sf_context_get_backend(ma_context* pContext)
+MA_API ma_backend sf_context_get_backend(const ma_context* pContext)
 {
     if (pContext == NULL) {
         return ma_backend_null;
     }
 
     return pContext->backend;
-}
-
 }

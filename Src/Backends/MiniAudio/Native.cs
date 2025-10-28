@@ -19,7 +19,7 @@ internal static unsafe partial class Native
         nint pCodecContext,          // The native decoder/encoder instance pointer (ma_decoder*, ma_encoder*)
         nint pBuffer,                // The buffer pointer (void* pBufferOut or const void* pBufferIn)
         ulong bytesRequested,        // The number of bytes requested (bytesToRead or bytesToWrite)
-        out ulong* bytesTransferred   // The actual number of bytes processed/transferred (size_t*)
+        out ulong bytesTransferred   // The actual number of bytes processed/transferred (size_t*)
     );
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -170,7 +170,7 @@ internal static unsafe partial class Native
 
     [LibraryImport(LibraryName, EntryPoint = "ma_encoder_write_pcm_frames")]
     public static partial Result EncoderWritePcmFrames(nint pEncoder, nint pFramesIn, ulong frameCount,
-        ulong* pFramesWritten);
+        out ulong pFramesWritten);
 
     #endregion
 
@@ -191,7 +191,7 @@ internal static unsafe partial class Native
     public static partial Result DecoderSeekToPcmFrame(nint decoder, ulong frame);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_decoder_get_length_in_pcm_frames")]
-    public static partial Result DecoderGetLengthInPcmFrames(nint decoder, out uint* length);
+    public static partial Result DecoderGetLengthInPcmFrames(nint decoder, out ulong length);
 
     #endregion
 
@@ -211,7 +211,7 @@ internal static unsafe partial class Native
     #region Device
 
     [LibraryImport(LibraryName, EntryPoint = "sf_get_devices")]
-    public static partial Result GetDevices(nint context, out nint pPlaybackDevices, out nint pCaptureDevices, out nint playbackDeviceCount, out nint captureDeviceCount);
+    public static partial Result GetDevices(nint context, out nint pPlaybackDevices, out nint pCaptureDevices, out uint playbackDeviceCount, out uint captureDeviceCount);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_device_init")]
     public static partial Result DeviceInit(nint context, nint config, nint device);

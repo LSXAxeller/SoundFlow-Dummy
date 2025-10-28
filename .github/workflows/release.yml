@@ -1,0 +1,185 @@
+﻿# .github/workflows/release.yml
+
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The semantic version for the release (e.g., 1.2.3)'
+        required: true
+        type: string
+      publish_to_nuget:
+        description: 'Push packages to NuGet.org? (true/false)'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    name: Build, Package, and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trigger Native Build Workflows
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Triggering native library builds for ref ${{ github.ref_name }}..."
+          gh workflow run build-extensions-apm.yml --ref ${{ github.ref_name }}
+          gh workflow run build-ffmpeg.yml --ref ${{ github.ref_name }}
+          gh workflow run build-miniaudio.yml --ref ${{ github.ref_name }}
+          gh workflow run build-portmidi.yml --ref ${{ github.ref_name }}
+          echo "All build workflows triggered."
+
+      - name: Wait for WebRTC APM Build
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.sha }}
+          check_name: 'Build WebRTC Audio Processing'
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          wait_interval: 30
+          running_workflow_name: 'Create Release'
+
+      - name: Wait for FFmpeg Build
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.sha }}
+          check_name: 'Build FFmpeg Codec Integration'
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          wait_interval: 30
+          running_workflow_name: 'Create Release'
+
+      - name: Wait for Miniaudio Build
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.sha }}
+          check_name: 'Build Miniaudio Native Library'
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          wait_interval: 30
+          running_workflow_name: 'Create Release'
+
+      - name: Wait for PortMidi Build
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.sha }}
+          check_name: 'Build PortMidi Library'
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          wait_interval: 30
+          running_workflow_name: 'Create Release'
+
+      - name: Download WebRTC APM Artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-extensions-apm.yml
+          name: webrtc-audio-processing
+          path: native-artifacts/webrtc-audio-processing
+          commit: ${{ github.sha }}
+
+      - name: Download FFmpeg Artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ffmpeg.yml
+          name: soundflow-ffmpeg-runtimes
+          path: native-artifacts/soundflow-ffmpeg-runtimes
+          commit: ${{ github.sha }}
+
+      - name: Download Miniaudio Artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-miniaudio.yml
+          name: miniaudio-native-libraries
+          path: native-artifacts/miniaudio-native-libraries
+          commit: ${{ github.sha }}
+
+      - name: Download PortMidi Artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-portmidi.yml
+          name: portmidi-native-libraries
+          path: native-artifacts/portmidi-native-libraries
+          commit: ${{ github.sha }}
+
+      - name: Extract and Place Runtimes
+        run: |
+          # Miniaudio
+          unzip native-artifacts/miniaudio-native-libraries/miniaudio-native-libraries.zip -d temp_unzip
+          rm -rf Src/Backends/MiniAudio/runtimes
+          mv temp_unzip/runtimes Src/Backends/MiniAudio/
+          rm -rf temp_unzip
+
+          # PortMidi
+          unzip native-artifacts/portmidi-native-libraries/portmidi-native-libraries.zip -d temp_unzip
+          rm -rf Midi/SoundFlow.Midi.PortMidi/runtimes
+          mv temp_unzip/runtimes Midi/SoundFlow.Midi.PortMidi/
+          rm -rf temp_unzip
+
+          # WebRTC APM
+          unzip native-artifacts/webrtc-audio-processing/webrtc-audio-processing.zip -d temp_unzip
+          rm -rf Extensions/SoundFlow.Extensions.WebRtc.Apm/runtimes
+          mv temp_unzip/runtimes Extensions/SoundFlow.Extensions.WebRtc.Apm/
+          rm -rf temp_unzip
+
+          # FFmpeg
+          unzip native-artifacts/soundflow-ffmpeg-runtimes/soundflow-ffmpeg-runtimes.zip -d temp_unzip
+          rm -rf Codecs/SoundFlow.Codecs.FFMpeg/runtimes
+          mv temp_unzip/runtimes Codecs/SoundFlow.Codecs.FFMpeg/
+          rm -rf temp_unzip
+
+          echo "All runtimes have been placed."
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Update Project Versions
+        run: |
+          VERSION=${{ inputs.version }}
+          CSPROJ_FILES=(
+            "Src/SoundFlow.csproj"
+            "Codecs/SoundFlow.Codecs.FFMpeg/SoundFlow.Codecs.FFMpeg.csproj"
+            "Extensions/SoundFlow.Extensions.WebRtc.Apm/SoundFlow.Extensions.WebRtc.Apm.csproj"
+            "Midi/SoundFlow.Midi.PortMidi/SoundFlow.Midi.PortMidi.csproj"
+          )
+          for file in "${CSPROJ_FILES[@]}"; do
+            echo "Updating version in $file to $VERSION"
+            sed -i "s|<Version>.*</Version>|<Version>$VERSION</Version>|" "$file"
+          done
+
+      - name: Create NuGet Packages
+        run: |
+          mkdir -p ./packages
+          dotnet pack Src/SoundFlow.csproj --configuration Release -o ./packages
+          dotnet pack Codecs/SoundFlow.Codecs.FFMpeg/SoundFlow.Codecs.FFMpeg.csproj --configuration Release -o ./packages
+          dotnet pack Extensions/SoundFlow.Extensions.WebRtc.Apm/SoundFlow.Extensions.WebRtc.Apm.csproj --configuration Release -o ./packages
+          dotnet pack Midi/SoundFlow.Midi.PortMidi/SoundFlow.Midi.PortMidi.csproj --configuration Release -o ./packages
+
+      - name: Push Packages to NuGet.org
+        if: secrets.NUGET_API_KEY != '' && inputs.publish_to_nuget == true
+        run: dotnet nuget push "packages/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
+
+      - name: Commit to Release Branch, Tag, and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b release/v${{ inputs.version }}
+          git add ./**/*.csproj
+          git commit -m "chore: Bump version to ${{ inputs.version }}"
+          git push origin release/v${{ inputs.version }}
+          git tag -a "v${{ inputs.version }}" -m "Release version v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Upload NuGet Packages as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages-${{ inputs.version }}
+          path: ./packages/*.nupkg
