@@ -164,7 +164,7 @@ jobs:
           dotnet pack Midi/SoundFlow.Midi.PortMidi/SoundFlow.Midi.PortMidi.csproj --configuration Release -o ./packages
 
       - name: Push Packages to NuGet.org
-        if: ${{ secrets.NUGET_API_KEY != '' && inputs.publish_to_nuget == true }}
+        if: inputs.publish_to_nuget == true
         run: dotnet nuget push "packages/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
 
       - name: Commit to Release Branch, Tag, and Push
