@@ -1,6 +1,4 @@
-﻿# .github/workflows/release.yml
-
-name: Create Release
+﻿name: Create Release
 
 on:
   workflow_dispatch:
@@ -44,37 +42,37 @@ jobs:
         uses: lewagon/wait-on-check-action@v1.3.1
         with:
           ref: ${{ github.sha }}
-          check_name: 'Build WebRTC Audio Processing'
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          wait_interval: 30
-          running_workflow_name: 'Create Release'
+          check-name: 'Build WebRTC Audio Processing'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+          running-workflow-name: 'Create Release'
 
       - name: Wait for FFmpeg Build
         uses: lewagon/wait-on-check-action@v1.3.1
         with:
           ref: ${{ github.sha }}
-          check_name: 'Build FFmpeg Codec Integration'
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          wait_interval: 30
-          running_workflow_name: 'Create Release'
+          check-name: 'Build FFmpeg Codec Integration'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+          running-workflow-name: 'Create Release'
 
       - name: Wait for Miniaudio Build
         uses: lewagon/wait-on-check-action@v1.3.1
         with:
           ref: ${{ github.sha }}
-          check_name: 'Build Miniaudio Native Library'
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          wait_interval: 30
-          running_workflow_name: 'Create Release'
+          check-name: 'Build Miniaudio Native Library'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+          running-workflow-name: 'Create Release'
 
       - name: Wait for PortMidi Build
         uses: lewagon/wait-on-check-action@v1.3.1
         with:
           ref: ${{ github.sha }}
-          check_name: 'Build PortMidi Library'
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          wait_interval: 30
-          running_workflow_name: 'Create Release'
+          check-name: 'Build PortMidi Library'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+          running-workflow-name: 'Create Release'
 
       - name: Download WebRTC APM Artifact
         uses: dawidd6/action-download-artifact@v6
