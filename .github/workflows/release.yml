@@ -39,40 +39,36 @@ jobs:
           echo "All build workflows triggered."
 
       - name: Wait for WebRTC APM Build
-        uses: lewagon/wait-on-check-action@v1.3.1
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
-          check-name: 'Build WebRTC Audio Processing'
+          check-regexp: '^Build WebRTC Audio Processing'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 30
-          running-workflow-name: 'Create Release'
 
       - name: Wait for FFmpeg Build
-        uses: lewagon/wait-on-check-action@v1.3.1
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
-          check-name: 'Build FFmpeg Codec Integration'
+          check-regexp: '^Build FFmpeg Codec Integration'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 30
-          running-workflow-name: 'Create Release'
 
       - name: Wait for Miniaudio Build
-        uses: lewagon/wait-on-check-action@v1.3.1
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
-          check-name: 'Build Miniaudio Native Library'
+          check-regexp: '^Build Miniaudio Native Library'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 30
-          running-workflow-name: 'Create Release'
 
       - name: Wait for PortMidi Build
-        uses: lewagon/wait-on-check-action@v1.3.1
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
-          check-name: 'Build PortMidi Library'
+          check-regexp: '^Build PortMidi Library'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 30
-          running-workflow-name: 'Create Release'
 
       - name: Download WebRTC APM Artifact
         uses: dawidd6/action-download-artifact@v6
