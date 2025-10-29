@@ -29,39 +29,39 @@ jobs:
 
       - name: Trigger and Wait for WebRTC APM Build
         id: webrtc_build
-        uses: mathze/workflow-dispatch-action@v2
+        uses: mathze/workflow-dispatch-action@v1.3.0
         with:
           workflow-name: build-extensions-apm.yml
           token: ${{ secrets.WORKFLOW_TOKEN }}
           ref: ${{ github.ref_name }}
-          run-id: dummy # Enables trigger-and-wait mode
+          run-id: dummy
 
       - name: Trigger and Wait for FFmpeg Build
         id: ffmpeg_build
-        uses: mathze/workflow-dispatch-action@v2
+        uses: mathze/workflow-dispatch-action@v1.3.0
         with:
           workflow-name: build-ffmpeg.yml
           token: ${{ secrets.WORKFLOW_TOKEN }}
           ref: ${{ github.ref_name }}
-          run-id: dummy # Enables trigger-and-wait mode
+          run-id: dummy
 
       - name: Trigger and Wait for Miniaudio Build
         id: miniaudio_build
-        uses: mathze/workflow-dispatch-action@v2
+        uses: mathze/workflow-dispatch-action@v1.3.0
         with:
           workflow-name: build-miniaudio.yml
           token: ${{ secrets.WORKFLOW_TOKEN }}
           ref: ${{ github.ref_name }}
-          run-id: dummy # Enables trigger-and-wait mode
+          run-id: dummy
 
       - name: Trigger and Wait for PortMidi Build
         id: portmidi_build
-        uses: mathze/workflow-dispatch-action@v2
+        uses: mathze/workflow-dispatch-action@v1.3.0
         with:
           workflow-name: build-portmidi.yml
           token: ${{ secrets.WORKFLOW_TOKEN }}
           ref: ${{ github.ref_name }}
-          run-id: dummy # Enables trigger-and-wait mode
+          run-id: dummy
 
       - name: Check Build Workflow Results
         if: >
