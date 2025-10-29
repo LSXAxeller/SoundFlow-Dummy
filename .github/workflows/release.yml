@@ -27,48 +27,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Trigger Native Build Workflows
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trigger and Wait for WebRTC APM Build
+        id: webrtc_build
+        uses: mathze/workflow-dispatch-action@v2
+        with:
+          workflow-name: build-extensions-apm.yml
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+          ref: ${{ github.ref_name }}
+          run-id: dummy # Enables trigger-and-wait mode
+
+      - name: Trigger and Wait for FFmpeg Build
+        id: ffmpeg_build
+        uses: mathze/workflow-dispatch-action@v2
+        with:
+          workflow-name: build-ffmpeg.yml
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+          ref: ${{ github.ref_name }}
+          run-id: dummy # Enables trigger-and-wait mode
+
+      - name: Trigger and Wait for Miniaudio Build
+        id: miniaudio_build
+        uses: mathze/workflow-dispatch-action@v2
+        with:
+          workflow-name: build-miniaudio.yml
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+          ref: ${{ github.ref_name }}
+          run-id: dummy # Enables trigger-and-wait mode
+
+      - name: Trigger and Wait for PortMidi Build
+        id: portmidi_build
+        uses: mathze/workflow-dispatch-action@v2
+        with:
+          workflow-name: build-portmidi.yml
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+          ref: ${{ github.ref_name }}
+          run-id: dummy # Enables trigger-and-wait mode
+
+      - name: Check Build Workflow Results
+        if: >
+          steps.webrtc_build.outputs.run-conclusion != 'success' ||
+          steps.ffmpeg_build.outputs.run-conclusion != 'success' ||
+          steps.miniaudio_build.outputs.run-conclusion != 'success' ||
+          steps.portmidi_build.outputs.run-conclusion != 'success'
         run: |
-          echo "Triggering native library builds for ref ${{ github.ref_name }}..."
-          gh workflow run build-extensions-apm.yml --ref ${{ github.ref_name }}
-          gh workflow run build-ffmpeg.yml --ref ${{ github.ref_name }}
-          gh workflow run build-miniaudio.yml --ref ${{ github.ref_name }}
-          gh workflow run build-portmidi.yml --ref ${{ github.ref_name }}
-          echo "All build workflows triggered."
-
-      - name: Wait for WebRTC APM Build
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          check-regexp: '^Build WebRTC Audio Processing'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 30
-
-      - name: Wait for FFmpeg Build
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          check-regexp: '^Build FFmpeg Codec Integration'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 30
-
-      - name: Wait for Miniaudio Build
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          check-regexp: '^Build Miniaudio Native Library'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 30
-
-      - name: Wait for PortMidi Build
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          check-regexp: '^Build PortMidi Library'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 30
+          echo "One or more native build workflows failed."
+          echo "WebRTC APM: ${{ steps.webrtc_build.outputs.run-conclusion }}"
+          echo "FFmpeg: ${{ steps.ffmpeg_build.outputs.run-conclusion }}"
+          echo "Miniaudio: ${{ steps.miniaudio_build.outputs.run-conclusion }}"
+          echo "PortMidi: ${{ steps.portmidi_build.outputs.run-conclusion }}"
+          exit 1
 
       - name: Download WebRTC APM Artifact
         uses: dawidd6/action-download-artifact@v6
@@ -76,7 +83,7 @@ jobs:
           workflow: build-extensions-apm.yml
           name: webrtc-audio-processing
           path: native-artifacts/webrtc-audio-processing
-          commit: ${{ github.sha }}
+          run_id: ${{ steps.webrtc_build.outputs.run-id }}
 
       - name: Download FFmpeg Artifact
         uses: dawidd6/action-download-artifact@v6
@@ -84,7 +91,7 @@ jobs:
           workflow: build-ffmpeg.yml
           name: soundflow-ffmpeg-runtimes
           path: native-artifacts/soundflow-ffmpeg-runtimes
-          commit: ${{ github.sha }}
+          run_id: ${{ steps.ffmpeg_build.outputs.run-id }}
 
       - name: Download Miniaudio Artifact
         uses: dawidd6/action-download-artifact@v6
@@ -92,7 +99,7 @@ jobs:
           workflow: build-miniaudio.yml
           name: miniaudio-native-libraries
           path: native-artifacts/miniaudio-native-libraries
-          commit: ${{ github.sha }}
+          run_id: ${{ steps.miniaudio_build.outputs.run-id }}
 
       - name: Download PortMidi Artifact
         uses: dawidd6/action-download-artifact@v6
@@ -100,7 +107,7 @@ jobs:
           workflow: build-portmidi.yml
           name: portmidi-native-libraries
           path: native-artifacts/portmidi-native-libraries
-          commit: ${{ github.sha }}
+          run_id: ${{ steps.portmidi_build.outputs.run-id }}
 
       - name: Extract and Place Runtimes
         run: |
