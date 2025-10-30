@@ -33,84 +33,73 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
           BRANCH_REF: ${{ github.ref_name }}
         run: |
-          set -e
+          set -e # Exit immediately if a command fails
           
-          echo "Triggering native build workflows on ref: $BRANCH_REF"
-
-          # Define the workflows to run
-          WORKFLOWS=(
-            "build-extensions-apm.yml"
-            "build-ffmpeg.yml"
-            "build-miniaudio.yml"
-            "build-portmidi.yml"
+          # Define Workflows and an associative array for their IDs
+          declare -A WORKFLOWS=(
+            ["webrtc"]="build-extensions-apm.yml"
+            ["ffmpeg"]="build-ffmpeg.yml"
+            ["miniaudio"]="build-miniaudio.yml"
+            ["portmidi"]="build-portmidi.yml"
           )
-          
+          declare -A RUN_IDS
+
           # Step 1: Trigger all workflows in parallel
-          for workflow in "${WORKFLOWS[@]}"; do
-            gh workflow run "$workflow" --ref "$BRANCH_REF" &
+          echo "Triggering native build workflows on ref: $BRANCH_REF"
+          for key in "${!WORKFLOWS[@]}"; do
+            gh workflow run "${WORKFLOWS[$key]}" --ref "$BRANCH_REF" &
           done
           wait # Wait for all background trigger jobs to finish
           
-          echo "All workflows triggered. Waiting a moment for them to appear..."
+          echo "All workflows triggered. Waiting a moment for them to appear on the API..."
           sleep 15 # Give GitHub API a moment to create the run entries
           
           # Step 2: Find the run IDs for the workflows we just started
           echo "Fetching run IDs for commit ${{ github.sha }}..."
-          
-          # We identify the runs by the commit SHA they were triggered on
-          webrtc_run_id=$(gh run list --workflow="build-extensions-apm.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
-          ffmpeg_run_id=$(gh run list --workflow="build-ffmpeg.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
-          miniaudio_run_id=$(gh run list --workflow="build-miniaudio.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
-          portmidi_run_id=$(gh run list --workflow="build-portmidi.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
+          for key in "${!WORKFLOWS[@]}"; do
+            run_id=$(gh run list --workflow="${WORKFLOWS[$key]}" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
+            if [[ -z "$run_id" ]]; then
+              echo "Error: Could not find the run ID for ${WORKFLOWS[$key]}."
+              exit 1
+            fi
+            RUN_IDS[$key]=$run_id
+            echo "  => Found Run ID for $key: ${RUN_IDS[$key]}"
+          done
 
-          if [[ -z "$webrtc_run_id" || -z "$ffmpeg_run_id" || -z "$miniaudio_run_id" || -z "$portmidi_run_id" ]]; then
-            echo "Error: Could not find the run ID for one or more workflows. Please check the 'Actions' tab."
-            exit 1
-          fi
-
-          echo "Found Run IDs:"
-          echo "  WebRTC APM: $webrtc_run_id"
-          echo "  FFmpeg: $ffmpeg_run_id"
-          echo "  Miniaudio: $miniaudio_run_id"
-          echo "  PortMidi: $portmidi_run_id"
-
-          # Set outputs for download steps
-          echo "webrtc_run_id=$webrtc_run_id" >> "$GITHUB_OUTPUT"
-          echo "ffmpeg_run_id=$ffmpeg_run_id" >> "$GITHUB_OUTPUT"
-          echo "miniaudio_run_id=$miniaudio_run_id" >> "$GITHUB_OUTPUT"
-          echo "portmidi_run_id=$portmidi_run_id" >> "$GITHUB_OUTPUT"
+          # Set outputs for download steps. These names must match the download steps below.
+          echo "webrtc_run_id=${RUN_IDS[webrtc]}" >> "$GITHUB_OUTPUT"
+          echo "ffmpeg_run_id=${RUN_IDS[ffmpeg]}" >> "$GITHUB_OUTPUT"
+          echo "miniaudio_run_id=${RUN_IDS[miniaudio]}" >> "$GITHUB_OUTPUT"
+          echo "portmidi_run_id=${RUN_IDS[portmidi]}" >> "$GITHUB_OUTPUT"
           
-          # Step 3: Wait for all runs to complete and check their conclusions
-          echo "Waiting for all build workflows to complete..."
+          # Step 3: Wait for all runs to complete
+          echo "Waiting for all build workflows to complete... (Polling every 1 minute)"
           
-          # Use gh run watch for each and run in the background
-          gh run watch "$webrtc_run_id" &
-          gh run watch "$ffmpeg_run_id" &
-          gh run watch "$miniaudio_run_id" &
-          gh run watch "$portmidi_run_id" &
+          # Run 'watch' for each in the background with a 60-second interval
+          for id in "${RUN_IDS[@]}"; do
+            gh run watch "$id" --interval 60 &
+          done
           wait # Wait for all 'watch' commands to finish
           
-          echo "All workflows have completed. Checking conclusions..."
-
-          # Fetch conclusions
-          webrtc_conclusion=$(gh run view "$webrtc_run_id" --json conclusion -q .conclusion)
-          ffmpeg_conclusion=$(gh run view "$ffmpeg_run_id" --json conclusion -q .conclusion)
-          miniaudio_conclusion=$(gh run view "$miniaudio_run_id" --json conclusion -q .conclusion)
-          portmidi_conclusion=$(gh run view "$portmidi_run_id" --json conclusion -q .conclusion)
-
-          echo "WebRTC APM: $webrtc_conclusion"
-          echo "FFmpeg: $ffmpeg_conclusion"
-          echo "Miniaudio: $miniaudio_conclusion"
-          echo "PortMidi: $portmidi_conclusion"
+          # Step 4: Check final conclusions
+          echo "All workflows have completed. Checking final conclusions..."
           
-          if [[ "$webrtc_conclusion" != "success" || "$ffmpeg_conclusion" != "success" || "$miniaudio_conclusion" != "success" || "$portmidi_conclusion" != "success" ]]; then
+          all_successful=true
+          for key in "${!RUN_IDS[@]}"; do
+            conclusion=$(gh run view "${RUN_IDS[$key]}" --json conclusion -q .conclusion)
+            echo "  => ${WORKFLOWS[$key]} conclusion: $conclusion"
+            if [[ "$conclusion" != "success" ]]; then
+              all_successful=false
+            fi
+          done
+
+          if [[ "$all_successful" != true ]]; then
             echo "One or more native build workflows failed."
             exit 1
           fi
 
           echo "All native build workflows completed successfully."
 
-      # Note: The download steps now use the outputs from the 'native_builds' step
       - name: Download WebRTC APM Artifact
         uses: dawidd6/action-download-artifact@v6
         with:
