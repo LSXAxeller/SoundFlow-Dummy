@@ -78,6 +78,9 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "macOS")
     )
 
 elseif (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # Set language to Objective-C for iOS
+    set_source_files_properties(library.c PROPERTIES LANGUAGE OBJC)
+
     # Define MA_NO_RUNTIME_LINKING for iOS builds
     add_definitions(-DMA_NO_RUNTIME_LINKING)
 
