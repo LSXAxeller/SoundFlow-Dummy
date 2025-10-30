@@ -15,7 +15,7 @@ on:
 
 permissions:
   contents: write
-  actions: write
+  actions: read
 
 jobs:
   release:
@@ -27,63 +27,97 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Trigger and Wait for WebRTC APM Build
-        id: webrtc_build
-        uses: mathze/workflow-dispatch-action@v1.3.0
-        with:
-          workflow-name: build-extensions-apm.yml
-          token: ${{ secrets.WORKFLOW_TOKEN }}
-          ref: ${{ github.ref_name }}
-          run-id: dummy
-
-      - name: Trigger and Wait for FFmpeg Build
-        id: ffmpeg_build
-        uses: mathze/workflow-dispatch-action@v1.3.0
-        with:
-          workflow-name: build-ffmpeg.yml
-          token: ${{ secrets.WORKFLOW_TOKEN }}
-          ref: ${{ github.ref_name }}
-          run-id: dummy
-
-      - name: Trigger and Wait for Miniaudio Build
-        id: miniaudio_build
-        uses: mathze/workflow-dispatch-action@v1.3.0
-        with:
-          workflow-name: build-miniaudio.yml
-          token: ${{ secrets.WORKFLOW_TOKEN }}
-          ref: ${{ github.ref_name }}
-          run-id: dummy
-
-      - name: Trigger and Wait for PortMidi Build
-        id: portmidi_build
-        uses: mathze/workflow-dispatch-action@v1.3.0
-        with:
-          workflow-name: build-portmidi.yml
-          token: ${{ secrets.WORKFLOW_TOKEN }}
-          ref: ${{ github.ref_name }}
-          run-id: dummy
-
-      - name: Check Build Workflow Results
-        if: >
-          steps.webrtc_build.outputs.run-conclusion != 'success' ||
-          steps.ffmpeg_build.outputs.run-conclusion != 'success' ||
-          steps.miniaudio_build.outputs.run-conclusion != 'success' ||
-          steps.portmidi_build.outputs.run-conclusion != 'success'
+      - name: Trigger and Wait for Native Builds
+        id: native_builds
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+          BRANCH_REF: ${{ github.ref_name }}
         run: |
-          echo "One or more native build workflows failed."
-          echo "WebRTC APM: ${{ steps.webrtc_build.outputs.run-conclusion }}"
-          echo "FFmpeg: ${{ steps.ffmpeg_build.outputs.run-conclusion }}"
-          echo "Miniaudio: ${{ steps.miniaudio_build.outputs.run-conclusion }}"
-          echo "PortMidi: ${{ steps.portmidi_build.outputs.run-conclusion }}"
-          exit 1
+          set -e
+          
+          echo "Triggering native build workflows on ref: $BRANCH_REF"
 
+          # Define the workflows to run
+          WORKFLOWS=(
+            "build-extensions-apm.yml"
+            "build-ffmpeg.yml"
+            "build-miniaudio.yml"
+            "build-portmidi.yml"
+          )
+          
+          # Step 1: Trigger all workflows in parallel
+          for workflow in "${WORKFLOWS[@]}"; do
+            gh workflow run "$workflow" --ref "$BRANCH_REF" &
+          done
+          wait # Wait for all background trigger jobs to finish
+          
+          echo "All workflows triggered. Waiting a moment for them to appear..."
+          sleep 15 # Give GitHub API a moment to create the run entries
+          
+          # Step 2: Find the run IDs for the workflows we just started
+          echo "Fetching run IDs for commit ${{ github.sha }}..."
+          
+          # We identify the runs by the commit SHA they were triggered on
+          webrtc_run_id=$(gh run list --workflow="build-extensions-apm.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
+          ffmpeg_run_id=$(gh run list --workflow="build-ffmpeg.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
+          miniaudio_run_id=$(gh run list --workflow="build-miniaudio.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
+          portmidi_run_id=$(gh run list --workflow="build-portmidi.yml" --branch "$BRANCH_REF" --json databaseId,headSha -q '.[] | select(.headSha=="${{ github.sha }}") | .databaseId' | head -n 1)
+
+          if [[ -z "$webrtc_run_id" || -z "$ffmpeg_run_id" || -z "$miniaudio_run_id" || -z "$portmidi_run_id" ]]; then
+            echo "Error: Could not find the run ID for one or more workflows. Please check the 'Actions' tab."
+            exit 1
+          fi
+
+          echo "Found Run IDs:"
+          echo "  WebRTC APM: $webrtc_run_id"
+          echo "  FFmpeg: $ffmpeg_run_id"
+          echo "  Miniaudio: $miniaudio_run_id"
+          echo "  PortMidi: $portmidi_run_id"
+
+          # Set outputs for download steps
+          echo "webrtc_run_id=$webrtc_run_id" >> "$GITHUB_OUTPUT"
+          echo "ffmpeg_run_id=$ffmpeg_run_id" >> "$GITHUB_OUTPUT"
+          echo "miniaudio_run_id=$miniaudio_run_id" >> "$GITHUB_OUTPUT"
+          echo "portmidi_run_id=$portmidi_run_id" >> "$GITHUB_OUTPUT"
+          
+          # Step 3: Wait for all runs to complete and check their conclusions
+          echo "Waiting for all build workflows to complete..."
+          
+          # Use gh run watch for each and run in the background
+          gh run watch "$webrtc_run_id" &
+          gh run watch "$ffmpeg_run_id" &
+          gh run watch "$miniaudio_run_id" &
+          gh run watch "$portmidi_run_id" &
+          wait # Wait for all 'watch' commands to finish
+          
+          echo "All workflows have completed. Checking conclusions..."
+
+          # Fetch conclusions
+          webrtc_conclusion=$(gh run view "$webrtc_run_id" --json conclusion -q .conclusion)
+          ffmpeg_conclusion=$(gh run view "$ffmpeg_run_id" --json conclusion -q .conclusion)
+          miniaudio_conclusion=$(gh run view "$miniaudio_run_id" --json conclusion -q .conclusion)
+          portmidi_conclusion=$(gh run view "$portmidi_run_id" --json conclusion -q .conclusion)
+
+          echo "WebRTC APM: $webrtc_conclusion"
+          echo "FFmpeg: $ffmpeg_conclusion"
+          echo "Miniaudio: $miniaudio_conclusion"
+          echo "PortMidi: $portmidi_conclusion"
+          
+          if [[ "$webrtc_conclusion" != "success" || "$ffmpeg_conclusion" != "success" || "$miniaudio_conclusion" != "success" || "$portmidi_conclusion" != "success" ]]; then
+            echo "One or more native build workflows failed."
+            exit 1
+          fi
+
+          echo "All native build workflows completed successfully."
+
+      # Note: The download steps now use the outputs from the 'native_builds' step
       - name: Download WebRTC APM Artifact
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build-extensions-apm.yml
           name: webrtc-audio-processing
           path: native-artifacts/webrtc-audio-processing
-          run_id: ${{ steps.webrtc_build.outputs.run-id }}
+          run_id: ${{ steps.native_builds.outputs.webrtc_run_id }}
 
       - name: Download FFmpeg Artifact
         uses: dawidd6/action-download-artifact@v6
@@ -91,7 +125,7 @@ jobs:
           workflow: build-ffmpeg.yml
           name: soundflow-ffmpeg-runtimes
           path: native-artifacts/soundflow-ffmpeg-runtimes
-          run_id: ${{ steps.ffmpeg_build.outputs.run-id }}
+          run_id: ${{ steps.native_builds.outputs.ffmpeg_run_id }}
 
       - name: Download Miniaudio Artifact
         uses: dawidd6/action-download-artifact@v6
@@ -99,7 +133,7 @@ jobs:
           workflow: build-miniaudio.yml
           name: miniaudio-native-libraries
           path: native-artifacts/miniaudio-native-libraries
-          run_id: ${{ steps.miniaudio_build.outputs.run-id }}
+          run_id: ${{ steps.native_builds.outputs.miniaudio_run_id }}
 
       - name: Download PortMidi Artifact
         uses: dawidd6/action-download-artifact@v6
@@ -107,7 +141,7 @@ jobs:
           workflow: build-portmidi.yml
           name: portmidi-native-libraries
           path: native-artifacts/portmidi-native-libraries
-          run_id: ${{ steps.portmidi_build.outputs.run-id }}
+          run_id: ${{ steps.native_builds.outputs.portmidi_run_id }}
 
       - name: Extract and Place Runtimes
         run: |
