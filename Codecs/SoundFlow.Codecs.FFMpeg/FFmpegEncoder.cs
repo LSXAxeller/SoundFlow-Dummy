@@ -3,6 +3,7 @@ using SoundFlow.Codecs.FFMpeg.Exceptions;
 using SoundFlow.Interfaces;
 using SoundFlow.Structs;
 using SoundFlow.Codecs.FFMpeg.Native;
+using SoundFlow.Utils;
 
 namespace SoundFlow.Codecs.FFMpeg;
 
@@ -76,6 +77,7 @@ internal sealed class FFmpegEncoder : ISoundEncoder
         }
         catch
         {
+            Log.Critical("[FFmpegEncoder] Failed to write to stream.");
             return 0;
         }
     }

@@ -206,6 +206,23 @@ SF_FFMPEG_API SF_Result sf_decoder_read_pcm_frames(SF_Decoder* decoder, void* pF
     int draining = 0;
 
     while (frames_read < frameCount) {
+        // Check if the resampler has data buffered from previous calls.
+        if (swr_get_out_samples(decoder->swr_ctx, 0) > 0) {
+            // Call swr_convert with NULL input to flush/read buffered data
+            int out_samples = swr_convert(decoder->swr_ctx,
+                                         out_ptr,
+                                         (int)(frameCount - frames_read),
+                                         NULL, 0);
+
+            if (out_samples > 0) {
+                out_ptr[0] += out_samples * decoder->target_channels * decoder->target_bytes_per_sample;
+                frames_read += out_samples;
+
+                // If we filled the user buffer, we are done for this call.
+                if (frames_read >= frameCount) break;
+            }
+        }
+
         // Try to receive a decoded frame
         int ret = avcodec_receive_frame(decoder->codec_ctx, decoder->frame);
 
@@ -237,7 +254,7 @@ SF_FFMPEG_API SF_Result sf_decoder_read_pcm_frames(SF_Decoder* decoder, void* pF
                     frames_read += flushed_samples;
                 }
             } while (flushed_samples > 0 && frames_read < frameCount);
-            
+
             // End of stream is not an error, break loop and return success.
             break;
         }

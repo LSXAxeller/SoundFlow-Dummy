@@ -125,6 +125,7 @@ internal sealed class PortMidiInputDevice : MidiInputDevice
         }
         catch (OperationCanceledException)
         {
+            Log.Warning("PortMidiInputDevice: Polling task was cancelled.");
             // Task was cancelled, which is expected on Dispose.
         }
     }

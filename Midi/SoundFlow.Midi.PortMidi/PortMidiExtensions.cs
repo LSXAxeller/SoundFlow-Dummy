@@ -20,6 +20,7 @@ public static class PortMidiExtensions
     {
         var backend = new PortMidiBackend();
         engine.UseMidiBackend(backend);
+        engine.UpdateMidiDevicesInfo();
         return backend;
     }
 }

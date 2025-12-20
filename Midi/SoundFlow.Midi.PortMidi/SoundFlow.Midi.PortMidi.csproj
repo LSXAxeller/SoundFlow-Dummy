@@ -5,6 +5,8 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <IsAotCompatible>true</IsAotCompatible>
+        <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
         <Title>SoundFlow.Midi.PortMidi</Title>
         <Description>A PortMidi backend for the SoundFlow audio engine, providing cross-platform MIDI I/O capabilities.</Description>
         <Copyright>Copyright (c) 2025 LSXPrime</Copyright>
@@ -13,8 +15,11 @@
         <RepositoryUrl>https://github.com/LSXPrime/SoundFlow</RepositoryUrl>
         <RepositoryType>Github</RepositoryType>
         <PackageIcon>logo.png</PackageIcon>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageTags>audio, sound, midi, portmidi, crossplatform, c#, .net</PackageTags>
-        <Version>1.3.0</Version>
+        <Version>1.3.1</Version>
+        <PackageReleaseNotes>https://github.com/LSXPrime/SoundFlow/releases</PackageReleaseNotes>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <Company>LSXPrime</Company>
     </PropertyGroup>
 
@@ -29,6 +34,10 @@
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
             <Pack>true</Pack>
         </None>
+        <None Include="..\..\THIRD-PARTY-NOTICES.txt"
+              Pack="true"
+              PackagePath="\"
+              CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>

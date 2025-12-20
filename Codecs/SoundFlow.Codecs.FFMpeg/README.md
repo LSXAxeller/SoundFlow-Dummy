@@ -1,8 +1,4 @@
-﻿Of course! Here is a detailed `README.md` file for the `SoundFlow.Codecs.FFMpeg` extension, written in the same style as the other project READMEs.
-
----
-
-<div align="center">
+﻿<div align="center">
     <img src="https://raw.githubusercontent.com/LSXPrime/SoundFlow/refs/heads/master/logo.png" alt="Project Logo" width="256" height="256">
 
 # SoundFlow - Codec Extension (FFmpeg)
@@ -30,7 +26,7 @@ This extension provides a high-performance and memory-efficient bridge to FFmpeg
     *   **And many more container and raw formats.**
 *   **Seamless Integration:** Implements a high-priority `ICodecFactory`, allowing SoundFlow to automatically use FFmpeg for supported formats with no changes to your existing playback or recording code.
 *   **High Performance & Efficiency:** Works directly with streams using a callback-based native wrapper. This avoids loading entire audio files into memory, making it ideal for large files and network streams.
-*   **Cross-Platform:** Includes pre-compiled native binaries for Windows, macOS, and Linux (x64, x86, ARM64), ensuring it works wherever SoundFlow runs.
+*   **Cross-Platform:** Includes pre-compiled native binaries for Windows, macOS, Linux, Android, iOS and FreeBSD (x64, x86, ARM64), ensuring it works wherever SoundFlow runs.
 *   **Automatic Format Conversion:** The native wrapper intelligently uses FFmpeg's `swresample` library to automatically convert audio from its source format to the format required by your application (e.g., 32-bit float), simplifying your audio pipeline.
 
 ## Getting Started

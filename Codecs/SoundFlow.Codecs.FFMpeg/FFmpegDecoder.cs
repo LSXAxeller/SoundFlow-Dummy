@@ -4,6 +4,7 @@ using SoundFlow.Enums;
 using SoundFlow.Interfaces;
 using SoundFlow.Structs;
 using SoundFlow.Codecs.FFMpeg.Native;
+using SoundFlow.Utils;
 
 namespace SoundFlow.Codecs.FFMpeg;
 
@@ -119,6 +120,7 @@ internal sealed class FFmpegDecoder : ISoundDecoder
         }
         catch
         {
+            Log.Critical("[FFmpegDecoder] Failed to read from stream.");
             // Signal error/EOF to FFmpeg by returning 0. FFmpeg will handle this gracefully as AVERROR_EOF.
             return 0;
         }
@@ -133,6 +135,7 @@ internal sealed class FFmpegDecoder : ISoundDecoder
         }
         catch
         {
+            Log.Critical("[FFmpegDecoder] Failed to seek stream.");
             return -1;
         }
     }
