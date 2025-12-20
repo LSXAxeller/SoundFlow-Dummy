@@ -1,6 +1,4 @@
-﻿using SoundFlow.Abstracts.Devices;
-using SoundFlow.Components;
-using SoundFlow.Metadata.Midi;
+﻿using SoundFlow.Metadata.Midi;
 using SoundFlow.Midi;
 using SoundFlow.Midi.Devices;
 using SoundFlow.Midi.Enums;
@@ -84,7 +82,7 @@ public sealed class CompositionRecorder : IDisposable
         {
             existingState.Recorder.Dispose();
         }
-        var recorder = new MidiRecorder(inputDevice, _composition.SampleRate);
+        var recorder = new MidiRecorder(inputDevice);
         _armedTracks[track] = new ArmedTrackState(track, recorder);
     }
     
@@ -207,10 +205,10 @@ public sealed class CompositionRecorder : IDisposable
         {
             if (!state.Recorder.IsRecording) continue;
 
-            state.Recorder.StopRecording(Converter, _composition.TicksPerQuarterNote);
-            continue;
-
-            long Converter(TimeSpan time) => MidiTimeConverter.GetTickForTimeSpan(time, _composition.TicksPerQuarterNote, _composition.TempoTrack);
+            state.Recorder.StopRecording(
+                time => MidiTimeConverter.GetTickForTimeSpan(time, _composition.TicksPerQuarterNote, _composition.TempoTrack),
+                _composition.TicksPerQuarterNote
+            );
         }
     }
 
@@ -234,11 +232,14 @@ public sealed class CompositionRecorder : IDisposable
     /// <param name="loopDurationSamples">The duration of the loop in audio samples.</param>
     internal void OnTransportLoop(long loopDurationSamples)
     {
+        // Convert the sample duration to a TimeSpan.
+        var loopDuration = TimeSpan.FromSeconds((double)loopDurationSamples / _composition.SampleRate / _composition.TargetChannels);
+
         foreach (var state in _armedTracks.Values)
         {
             if (state.Recorder.IsRecording)
             {
-                state.Recorder.AddLoopOffset(loopDurationSamples);
+                state.Recorder.AddLoopOffset(loopDuration);
             }
         }
     }

@@ -31,11 +31,31 @@ public class VoiceMapping
     /// </summary>
     public int MaxVelocity { get; set; } = 127;
     
-    // SF2 Specific Parameters
+    /// <summary>
+    /// Gets or sets the initial volume attenuation applied to the voice (in dB).
+    /// </summary>
     public float InitialAttenuation { get; set; } // in dB
+    
+    /// <summary>
+    /// Gets or sets the stereo pan position for the voice (-1.0 for hard left, 1.0 for hard right, 0.0 for center).
+    /// </summary>
     public float Pan { get; set; } // -1 to 1
+    
+    /// <summary>
+    /// Gets or sets the MIDI key number that should be treated as the root or natural pitch of the sample.
+    /// A value of -1 indicates that the sample's inherent root key should be used.
+    /// </summary>
     public int RootKeyOverride { get; set; } = -1;
+    
+    /// <summary>
+    /// Gets or sets the fine tuning offset applied to the voice (in cents).
+    /// </summary>
     public int Tune { get; set; } // in cents
+    
+    /// <summary>
+    /// Gets or sets the sample looping behavior (e.g., non-looping, continuous loop).
+    /// The exact interpretation depends on the synthesizer engine.
+    /// </summary>
     public int LoopMode { get; set; }
 
     /// <summary>

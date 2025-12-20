@@ -10,8 +10,55 @@ public record QuantizationSettings
     /// </summary>
     public enum GridInterval
     {
-        WholeNote, HalfNote, QuarterNote, EighthNote, SixteenthNote, ThirtySecondNote,
-        HalfTriplet, QuarterTriplet, EighthTriplet, SixteenthTriplet
+        /// <summary>
+        /// Quantize to the nearest whole note.
+        /// </summary>
+        WholeNote,
+
+        /// <summary>
+        /// Quantize to the nearest half note.
+        /// </summary>
+        HalfNote,
+
+        /// <summary>
+        /// Quantize to the nearest quarter note.
+        /// </summary>
+        QuarterNote,
+
+        /// <summary>
+        /// Quantize to the nearest eighth note.
+        /// </summary>
+        EighthNote,
+
+        /// <summary>
+        /// Quantize to the nearest sixteenth note.
+        /// </summary>
+        SixteenthNote,
+
+        /// <summary>
+        /// Quantize to the nearest thirty-second note.
+        /// </summary>
+        ThirtySecondNote,
+
+        /// <summary>
+        /// Quantize to the nearest half-note triplet.
+        /// </summary>
+        HalfTriplet,
+
+        /// <summary>
+        /// Quantize to the nearest quarter-note triplet.
+        /// </summary>
+        QuarterTriplet,
+
+        /// <summary>
+        /// Quantize to the nearest eighth-note triplet.
+        /// </summary>
+        EighthTriplet,
+
+        /// <summary>
+        /// Quantize to the nearest sixteenth-note triplet.
+        /// </summary>
+        SixteenthTriplet
     }
 
     /// <summary>
@@ -61,7 +108,7 @@ public static class MidiQuantizer
         foreach (var note in notes)
         {
             var nearestGridTick = (long)Math.Round((double)note.StartTick / gridTicks) * gridTicks;
-            
+
             // Apply swing
             if (Math.Abs(settings.Swing - 0.5) > 1e-6)
             {
@@ -72,10 +119,10 @@ public static class MidiQuantizer
                     nearestGridTick += swingOffset;
                 }
             }
-            
+
             var tickDelta = nearestGridTick - note.StartTick;
             var newStartTick = note.StartTick + (long)(tickDelta * settings.Strength);
-            
+
             long? newDurationTicks = null;
             if (settings.QuantizeNoteEnd)
             {

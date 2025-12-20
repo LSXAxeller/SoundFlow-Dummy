@@ -34,8 +34,7 @@ public sealed class MidiRoute
         {
             lock (_lock)
             {
-                // This pattern ensures thread-safe enumeration by returning a snapshot.
-                return _processors.AsReadOnly();
+                return new List<MidiModifier>(_processorsStaging);
             }
         }
     }
@@ -51,7 +50,11 @@ public sealed class MidiRoute
     /// </summary>
     internal event Action<MidiRoute, IError?>? OnError;
 
-    private readonly List<MidiModifier> _processors = [];
+    // Staging list for thread-safe modifications
+    private readonly List<MidiModifier> _processorsStaging = [];
+    
+    // Snapshot for hot-path access
+    private volatile MidiModifier[] _processorsSnapshot = [];
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MidiRoute"/> class.
@@ -100,7 +103,8 @@ public sealed class MidiRoute
     {
         lock (_lock)
         {
-            _processors.Insert(Math.Clamp(index, 0, _processors.Count), modifier);
+            _processorsStaging.Insert(Math.Clamp(index, 0, _processorsStaging.Count), modifier);
+            _processorsSnapshot = _processorsStaging.ToArray();
         }
     }
 
@@ -112,7 +116,8 @@ public sealed class MidiRoute
     {
         lock (_lock)
         {
-            _processors.Add(modifier);
+            _processorsStaging.Add(modifier);
+            _processorsSnapshot = _processorsStaging.ToArray();
         }
     }
 
@@ -125,7 +130,12 @@ public sealed class MidiRoute
     {
         lock (_lock)
         {
-            return _processors.Remove(modifier);
+            var removed = _processorsStaging.Remove(modifier);
+            if (removed)
+            {
+                _processorsSnapshot = _processorsStaging.ToArray();
+            }
+            return removed;
         }
     }
 
@@ -135,11 +145,8 @@ public sealed class MidiRoute
 
         IEnumerable<MidiMessage> messagesToProcess = [message];
 
-        MidiModifier[] currentProcessors;
-        lock (_lock)
-        {
-            currentProcessors = _processors.ToArray();
-        }
+        // Read snapshot directly to avoid lock
+        var currentProcessors = _processorsSnapshot;
 
         foreach (var processor in currentProcessors)
         {

@@ -45,7 +45,7 @@ public abstract class AudioEngine : IDisposable
     {
         MidiManager = new MidiManager(this);
     }
-    
+
     /// <summary>
     /// Gets an array of available playback devices.
     /// </summary>
@@ -60,7 +60,7 @@ public abstract class AudioEngine : IDisposable
     /// Gets an array of available MIDI input devices.
     /// </summary>
     public MidiDeviceInfo[] MidiInputDevices { get; protected set; } = [];
-    
+
     /// <summary>
     /// Gets an array of available MIDI output devices.
     /// </summary>
@@ -75,7 +75,7 @@ public abstract class AudioEngine : IDisposable
     /// Cleans up the audio backend context.
     /// </summary>
     protected abstract void CleanupBackend();
-    
+
     #region Synchronization Events
 
     /// <summary>
@@ -95,7 +95,7 @@ public abstract class AudioEngine : IDisposable
     /// This event provides a sample-accurate clock tick for driving master synchronization (e.g., MIDI Clock).
     /// </summary>
     public event EventHandler<AudioFramesRenderedEventArgs>? AudioFramesRendered;
-    
+
     /// <summary>
     /// For internal use by audio device implementations. Raises the <see cref="DeviceStarted"/> event.
     /// </summary>
@@ -109,11 +109,12 @@ public abstract class AudioEngine : IDisposable
     internal void RaiseDeviceStopped(AudioDevice device) => DeviceStopped?.Invoke(this, new DeviceEventArgs(device));
 
     /// <summary>
-    /// For internal use by audio device implementations. Raises the <see cref="AudioFramesRendered"/> event.
+    /// For internal use by audio device implementations. Raises the <see cref="AudioFramesRendered"/> event
+    /// using a reusable EventArgs object to avoid allocation overhead in the hot path.
     /// </summary>
-    /// <param name="device">The device that rendered the audio.</param>
-    /// <param name="frameCount">The number of frames rendered.</param>
-    internal void RaiseAudioFramesRendered(AudioDevice device, int frameCount) => AudioFramesRendered?.Invoke(this, new AudioFramesRenderedEventArgs(device, frameCount));
+    /// <param name="args">The cached event arguments object.</param>
+    internal void RaiseAudioFramesRendered(AudioFramesRenderedEventArgs args) => 
+        AudioFramesRendered?.Invoke(this, args);
 
     #endregion
 
@@ -128,11 +129,11 @@ public abstract class AudioEngine : IDisposable
     {
         if (_midiBackend != null)
             throw new InvalidOperationException("A MIDI backend has already been configured for this engine.");
-        
+
         _midiBackend = midiBackend;
         _midiBackend.Initialize(this);
     }
-    
+
     /// <summary>
     /// Solos the specified sound component, muting all other components within this engine's devices.
     /// </summary>
@@ -159,7 +160,7 @@ public abstract class AudioEngine : IDisposable
             }
         }
     }
-    
+
     /// <summary>
     /// Gets the currently soloed component, if any.
     /// </summary>
@@ -171,7 +172,7 @@ public abstract class AudioEngine : IDisposable
             return _soloedComponent;
         }
     }
-    
+
     /// <summary>
     /// Registers a codec factory with the audio engine using its default priority.
     /// </summary>
@@ -190,7 +191,7 @@ public abstract class AudioEngine : IDisposable
                     registrationList = [];
                     _codecRegistry[formatId] = registrationList;
                 }
-                
+
                 registrationList.Add(registration);
             }
         }
@@ -208,8 +209,8 @@ public abstract class AudioEngine : IDisposable
         lock (_codecRegistry)
         {
             // Sum the number of removed items from all lists, if the total is greater than 0, a factory was found and removed.
-            var totalRemoved = _codecRegistry.Values.Sum(
-                registrationList => registrationList.RemoveAll(reg => reg.Factory.FactoryId == factoryId)
+            var totalRemoved = _codecRegistry.Values.Sum(registrationList =>
+                registrationList.RemoveAll(reg => reg.Factory.FactoryId == factoryId)
             );
             return totalRemoved > 0;
         }
@@ -232,7 +233,7 @@ public abstract class AudioEngine : IDisposable
             var registrationsToUpdate = _codecRegistry.Values
                 .SelectMany(list => list.Where(reg => reg.Factory.FactoryId == factoryId))
                 .ToList();
-            
+
             // Update the priority of each registration.
             registrationsToUpdate.ForEach(reg => reg.Priority = newPriority);
 
@@ -261,6 +262,7 @@ public abstract class AudioEngine : IDisposable
                     .AsReadOnly();
             }
         }
+
         return [];
     }
 
@@ -297,12 +299,14 @@ public abstract class AudioEngine : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    Log.Warning($"Codec factory '{registration.Factory.FactoryId}' failed to create an encoder for format '{formatId}': {ex.Message}");
+                    Log.Warning(
+                        $"Codec factory '{registration.Factory.FactoryId}' failed to create an encoder for format '{formatId}': {ex.Message}");
                 }
             }
         }
-        
-        throw new NotSupportedException($"No registered and working codec factory found for encoding format '{formatId}'.");
+
+        throw new NotSupportedException(
+            $"No registered and working codec factory found for encoding format '{formatId}'.");
     }
 
     /// <summary>
@@ -334,18 +338,18 @@ public abstract class AudioEngine : IDisposable
                 {
                     var decoder = registration.Factory.CreateDecoder(stream, formatId, format);
                     if (decoder != null)
-                    {
                         return decoder;
-                    }
                 }
                 catch (Exception ex)
                 {
-                    Log.Warning($"Codec factory '{registration.Factory.FactoryId}' failed to create a decoder for format '{formatId}': {ex.Message}");
+                    Log.Warning(
+                        $"Codec factory '{registration.Factory.FactoryId}' failed to create a decoder for format '{formatId}': {ex.Message}");
                 }
             }
         }
 
-        throw new NotSupportedException($"No registered and working codec factory found for decoding format '{formatId}'.");
+        throw new NotSupportedException(
+            $"No registered and working codec factory found for decoding format '{formatId}'.");
     }
 
     /// <summary>
@@ -398,7 +402,8 @@ public abstract class AudioEngine : IDisposable
     /// <param name="format">The desired audio format.</param>
     /// <param name="config">Optional detailed configuration for the device and its backend.</param>
     /// <returns>An initialized <see cref="AudioPlaybackDevice"/>.</returns>
-    public abstract AudioPlaybackDevice InitializePlaybackDevice(DeviceInfo? deviceInfo, AudioFormat format, DeviceConfig? config = null);
+    public abstract AudioPlaybackDevice InitializePlaybackDevice(DeviceInfo? deviceInfo, AudioFormat format,
+        DeviceConfig? config = null);
 
     /// <summary>
     /// Initializes and returns a capture device.
@@ -407,8 +412,9 @@ public abstract class AudioEngine : IDisposable
     /// <param name="format">The desired audio format.</param>
     /// <param name="config">Optional detailed configuration for the device and its backend.</param>
     /// <returns>An initialized <see cref="AudioCaptureDevice"/>.</returns>
-    public abstract AudioCaptureDevice InitializeCaptureDevice(DeviceInfo? deviceInfo, AudioFormat format, DeviceConfig? config = null);
-    
+    public abstract AudioCaptureDevice InitializeCaptureDevice(DeviceInfo? deviceInfo, AudioFormat format,
+        DeviceConfig? config = null);
+
     /// <summary>
     /// Initializes a high-level full-duplex device for simultaneous input and output.
     /// This simplifies live effects processing by managing a paired capture and playback device.
@@ -418,7 +424,8 @@ public abstract class AudioEngine : IDisposable
     /// <param name="format">The audio format to use for both devices.</param>
     /// <param name="config">Optional detailed configuration for the devices.</param>
     /// <returns>An initialized <see cref="FullDuplexDevice"/> ready for use.</returns>
-    public abstract FullDuplexDevice InitializeFullDuplexDevice(DeviceInfo? playbackDeviceInfo, DeviceInfo? captureDeviceInfo, AudioFormat format, DeviceConfig? config = null);
+    public abstract FullDuplexDevice InitializeFullDuplexDevice(DeviceInfo? playbackDeviceInfo,
+        DeviceInfo? captureDeviceInfo, AudioFormat format, DeviceConfig? config = null);
 
     /// <summary>
     /// Initializes a loopback capture device, allowing for the recording of system audio output.
@@ -428,7 +435,7 @@ public abstract class AudioEngine : IDisposable
     /// <returns>An initialized <see cref="AudioCaptureDevice"/> configured for loopback recording.</returns>
     /// <exception cref="NotSupportedException">Thrown if a default playback device (required for loopback) cannot be found.</exception>
     public abstract AudioCaptureDevice InitializeLoopbackDevice(AudioFormat format, DeviceConfig? config = null);
-    
+
     /// <summary>
     /// Switches an active playback device to a new physical device, preserving its audio graph.
     /// The old device instance will be disposed.
@@ -437,7 +444,8 @@ public abstract class AudioEngine : IDisposable
     /// <param name="newDeviceInfo">The info for the new physical device to use.</param>
     /// <param name="config">Optional configuration for the new device.</param>
     /// <returns>A new, active <see cref="AudioPlaybackDevice"/> instance.</returns>
-    public abstract AudioPlaybackDevice SwitchDevice(AudioPlaybackDevice oldDevice, DeviceInfo newDeviceInfo, DeviceConfig? config = null);
+    public abstract AudioPlaybackDevice SwitchDevice(AudioPlaybackDevice oldDevice, DeviceInfo newDeviceInfo,
+        DeviceConfig? config = null);
 
     /// <summary>
     /// Switches an active capture device to a new physical device, preserving its event subscribers.
@@ -447,7 +455,8 @@ public abstract class AudioEngine : IDisposable
     /// <param name="newDeviceInfo">The info for the new physical device to use.</param>
     /// <param name="config">Optional configuration for the new device.</param>
     /// <returns>A new, active <see cref="AudioCaptureDevice"/> instance.</returns>
-    public abstract AudioCaptureDevice SwitchDevice(AudioCaptureDevice oldDevice, DeviceInfo newDeviceInfo, DeviceConfig? config = null);
+    public abstract AudioCaptureDevice SwitchDevice(AudioCaptureDevice oldDevice, DeviceInfo newDeviceInfo,
+        DeviceConfig? config = null);
 
     /// <summary>
     /// Switches the devices used by a full-duplex instance, preserving its state.
@@ -458,8 +467,9 @@ public abstract class AudioEngine : IDisposable
     /// <param name="newCaptureInfo">Info for the new capture device. If null, the existing capture device is used.</param>
     /// <param name="config">Optional configuration for the new device(s).</param>
     /// <returns>A new, active <see cref="FullDuplexDevice"/> instance.</returns>
-    public abstract FullDuplexDevice SwitchDevice(FullDuplexDevice oldDevice, DeviceInfo? newPlaybackInfo, DeviceInfo? newCaptureInfo, DeviceConfig? config = null);
-    
+    public abstract FullDuplexDevice SwitchDevice(FullDuplexDevice oldDevice, DeviceInfo? newPlaybackInfo,
+        DeviceInfo? newCaptureInfo, DeviceConfig? config = null);
+
     /// <summary>
     /// For backend implementers only. Creates and returns a MIDI input device.
     /// Application developers should use the <see cref="MidiManager"/> for all MIDI operations.
@@ -469,9 +479,10 @@ public abstract class AudioEngine : IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     public virtual MidiInputDevice CreateMidiInputDevice(MidiDeviceInfo deviceInfo)
     {
-        if (_midiBackend == null)
-            throw new NotSupportedException("No MIDI backend has been configured. Use engine.UseMidiBackend() to enable MIDI functionality.");
-        return _midiBackend.CreateMidiInputDevice(deviceInfo);
+        return _midiBackend == null
+            ? throw new NotSupportedException(
+                "No MIDI backend has been configured. Use engine.UseMidiBackend() to enable MIDI functionality.")
+            : _midiBackend.CreateMidiInputDevice(deviceInfo);
     }
 
     /// <summary>
@@ -483,11 +494,12 @@ public abstract class AudioEngine : IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     public virtual MidiOutputDevice CreateMidiOutputDevice(MidiDeviceInfo deviceInfo)
     {
-        if (_midiBackend == null)
-            throw new NotSupportedException("No MIDI backend has been configured. Use engine.UseMidiBackend() to enable MIDI functionality.");
-        return _midiBackend.CreateMidiOutputDevice(deviceInfo);
+        return _midiBackend == null
+            ? throw new NotSupportedException(
+                "No MIDI backend has been configured. Use engine.UseMidiBackend() to enable MIDI functionality.")
+            : _midiBackend.CreateMidiOutputDevice(deviceInfo);
     }
-    
+
     /// <summary>
     /// Retrieves the list of available playback and capture devices from the underlying audio backend.
     /// </summary>
@@ -502,7 +514,7 @@ public abstract class AudioEngine : IDisposable
     /// Retrieves the list of available playback and capture devices from the underlying audio backend.
     /// </summary>
     public abstract void UpdateAudioDevicesInfo();
-    
+
     /// <summary>
     /// Retrieves the list of available MIDI input and output devices from the underlying MIDI backend.
     /// </summary>
@@ -527,7 +539,7 @@ public abstract class AudioEngine : IDisposable
     /// Gets a value indicating whether the audio engine has been disposed.
     /// </summary>
     public bool IsDisposed { get; private set; }
-    
+
     /// <summary>
     /// Cleans up resources before the object is garbage collected.
     /// </summary>

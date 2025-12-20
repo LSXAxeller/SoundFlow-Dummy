@@ -48,15 +48,21 @@ public sealed class MidiManager : IDisposable
 
     private readonly List<MidiInputDevice> _activeInputDevices = [];
     private readonly List<MidiOutputDevice> _activeOutputDevices = [];
-    private readonly List<MidiRoute> _routes = [];
+    
+    // Routing State (Managed with Copy-On-Write)
+    private readonly List<MidiRoute> _routesStaging = [];
+    private volatile MidiRoute[] _routesSnapshot = [];
     
     // Nodes serve as wrappers for physical devices and internal targets
-    private readonly Dictionary<MidiDeviceInfo, MidiInputNode> _inputNodes = new();
-    private readonly Dictionary<MidiDeviceInfo, MidiOutputNode> _outputNodes = new();
+    private readonly Dictionary<MidiDeviceInfo, MidiInputNode> _inputNodesStaging = new();
+    private volatile Dictionary<MidiDeviceInfo, MidiInputNode> _inputNodesSnapshot = new();
+    
+    private readonly Dictionary<MidiDeviceInfo, MidiOutputNode> _outputNodes = new(); // Output nodes only accessed via routing setup
     
     // MPE-specific state
     private readonly Dictionary<MidiDeviceInfo, MpeZone> _mpeZones = new();
-    private readonly Dictionary<MidiDeviceInfo, MpeParser> _mpeParsers = new();
+    private readonly Dictionary<MidiDeviceInfo, MpeParser> _mpeParsersStaging = new();
+    private volatile Dictionary<MidiDeviceInfo, MpeParser> _mpeParsersSnapshot = new();
 
     /// <summary>
     /// Occurs when a MIDI route encounters a non-recoverable error, such as a device failure.
@@ -82,7 +88,7 @@ public sealed class MidiManager : IDisposable
         {
             lock (_lock)
             {
-                return _routes.ToList().AsReadOnly();
+                return _routesStaging.ToList().AsReadOnly();
             }
         }
     }
@@ -96,7 +102,7 @@ public sealed class MidiManager : IDisposable
         {
             lock (_lock)
             {
-                return _routes.Where(r => r.IsFaulted).ToList().AsReadOnly();
+                return _routesStaging.Where(r => r.IsFaulted).ToList().AsReadOnly();
             }
         }
     }
@@ -121,7 +127,8 @@ public sealed class MidiManager : IDisposable
         lock (_lock)
         {
             _mpeZones[deviceInfo] = zone;
-            _mpeParsers[deviceInfo] = new MpeParser(zone);
+            _mpeParsersStaging[deviceInfo] = new MpeParser(zone);
+            _mpeParsersSnapshot = new Dictionary<MidiDeviceInfo, MpeParser>(_mpeParsersStaging);
         }
     }
     
@@ -134,7 +141,10 @@ public sealed class MidiManager : IDisposable
         lock (_lock)
         {
             _mpeZones.Remove(deviceInfo);
-            _mpeParsers.Remove(deviceInfo);
+            if (_mpeParsersStaging.Remove(deviceInfo))
+            {
+                _mpeParsersSnapshot = new Dictionary<MidiDeviceInfo, MpeParser>(_mpeParsersStaging);
+            }
         }
     }
 
@@ -176,9 +186,10 @@ public sealed class MidiManager : IDisposable
     {
         lock (_lock)
         {
-            if (!_routes.Contains(route))
+            if (!_routesStaging.Contains(route))
             {
-                _routes.Add(route);
+                _routesStaging.Add(route);
+                _routesSnapshot = _routesStaging.ToArray();
                 route.OnError += HandleRouteFault;
                 route.Start();
             }
@@ -194,8 +205,9 @@ public sealed class MidiManager : IDisposable
     {
         lock (_lock)
         {
-            if (_routes.Remove(route))
+            if (_routesStaging.Remove(route))
             {
+                _routesSnapshot = _routesStaging.ToArray();
                 route.OnError -= HandleRouteFault;
                 route.Stop();
                 return true;
@@ -209,18 +221,27 @@ public sealed class MidiManager : IDisposable
         OnRouteFaulted?.Invoke(route, ex);
     }
     
-    private MidiInputNode GetOrCreateInputNode(MidiDeviceInfo deviceInfo)
+    /// <summary>
+    /// Gets an existing, or creates a new, managed MIDI input node for the specified device.
+    /// This method is the recommended way to get an initialized, active MidiInputDevice instance
+    /// without needing to create a full route.
+    /// </summary>
+    /// <param name="deviceInfo">The device information for the MIDI input device.</param>
+    /// <returns>The corresponding <see cref="MidiInputNode"/>, which contains the active device instance.</returns>
+    public MidiInputNode GetOrCreateInputNode(MidiDeviceInfo deviceInfo)
     {
         lock (_lock)
         {
-            if (_inputNodes.TryGetValue(deviceInfo, out var existingNode))
+            if (_inputNodesStaging.TryGetValue(deviceInfo, out var existingNode))
                 return existingNode;
             
             var device = _engine.CreateMidiInputDevice(deviceInfo);
             var node = new MidiInputNode(device);
             
             _activeInputDevices.Add(device);
-            _inputNodes[deviceInfo] = node;
+            
+            _inputNodesStaging[deviceInfo] = node;
+            _inputNodesSnapshot = new Dictionary<MidiDeviceInfo, MidiInputNode>(_inputNodesStaging);
             
             // Centralized subscriptions
             device.OnMessageReceived += OnDeviceMessageReceived;
@@ -230,14 +251,19 @@ public sealed class MidiManager : IDisposable
         }
     }
 
-    private MidiOutputNode GetOrCreateOutputNode(MidiDeviceInfo deviceInfo)
+    /// <summary>
+    /// Gets an existing, or creates a new, managed MIDI output node for the specified device.
+    /// This method is the recommended way to get an initialized, active MidiOutputDevice instance
+    /// without needing to create a full route.
+    /// </summary>
+    /// <param name="deviceInfo">The device information for the MIDI output device.</param>
+    /// <returns>The corresponding <see cref="MidiOutputNode"/>, which contains the active device instance.</returns>
+    public MidiOutputNode GetOrCreateOutputNode(MidiDeviceInfo deviceInfo)
     {
         lock (_lock)
         {
             if (_outputNodes.TryGetValue(deviceInfo, out var existingNode))
-            {
                 return existingNode;
-            }
 
             var device = _engine.CreateMidiOutputDevice(deviceInfo);
             var node = new MidiOutputNode(device);
@@ -254,34 +280,25 @@ public sealed class MidiManager : IDisposable
     /// </summary>
     private void OnDeviceMessageReceived(MidiMessage message, MidiDeviceInfo sourceDeviceInfo)
     {
-        MpeParser? mpeParser;
-        MidiInputNode? sourceNode;
-        MidiRoute[] currentRoutes;
+        // Access snapshots directly without locking
+        var mpeParserSnapshot = _mpeParsersSnapshot;
+        var inputNodeSnapshot = _inputNodesSnapshot;
+        var routeSnapshot = _routesSnapshot;
+        
+        mpeParserSnapshot.TryGetValue(sourceDeviceInfo, out var mpeParser);
+        inputNodeSnapshot.TryGetValue(sourceDeviceInfo, out var sourceNode);
 
-        // Acquire lock only to safely read shared state.
-        lock (_lock)
-        {
-            _mpeParsers.TryGetValue(sourceDeviceInfo, out mpeParser);
-            _inputNodes.TryGetValue(sourceDeviceInfo, out sourceNode);
-            currentRoutes = _routes.ToArray(); // Create a snapshot for thread-safe iteration.
-        }
-
-        // Perform message processing outside the lock to minimize contention.
+        // Perform message processing lock-free using snapshots
         if (mpeParser != null)
         {
             var mpeEvent = mpeParser.ProcessMessage(message);
-            if (mpeEvent != null)
+            if (mpeEvent == null) return;
+            foreach (var route in routeSnapshot)
             {
-                foreach (var route in currentRoutes)
-                {
-                    if (route.Source is MidiInputNode inputNode && inputNode.Device.Info.Equals(sourceDeviceInfo))
-                    {
-                        if (route.Destination is MidiTargetNode { Target: Synthesizer synth })
-                        {
-                            synth.ProcessMpeEvent(mpeEvent);
-                        }
-                    }
-                }
+                if (route.Source is not MidiInputNode inputNode ||
+                    !inputNode.Device.Info.Equals(sourceDeviceInfo)) continue;
+                
+                if (route.Destination is MidiTargetNode { Target: Synthesizer synth }) synth.ProcessMpeEvent(mpeEvent);
             }
         }
         else // Standard MIDI processing
@@ -295,13 +312,12 @@ public sealed class MidiManager : IDisposable
     /// </summary>
     private void OnDeviceSysExReceived(byte[] data, MidiDeviceInfo sourceDeviceInfo)
     {
-        MidiInputNode? sourceNode;
-        lock (_lock)
+        // Access input nodes snapshot
+        var inputNodeSnapshot = _inputNodesSnapshot;
+        if (inputNodeSnapshot.TryGetValue(sourceDeviceInfo, out var sourceNode))
         {
-            _inputNodes.TryGetValue(sourceDeviceInfo, out sourceNode);
+            sourceNode.TriggerSysExOutput(data);
         }
-
-        sourceNode?.TriggerSysExOutput(data);
     }
 
     /// <inheritdoc />
@@ -309,11 +325,12 @@ public sealed class MidiManager : IDisposable
     {
         lock (_lock)
         {
-            foreach (var route in _routes.ToList())
+            foreach (var route in _routesStaging.ToList())
             {
                 RemoveRoute(route); // This safely stops and unsubscribes the route.
             }
-            _routes.Clear();
+            _routesStaging.Clear();
+            _routesSnapshot = [];
 
             foreach (var device in _activeInputDevices)
             {
@@ -322,7 +339,9 @@ public sealed class MidiManager : IDisposable
                 device.Dispose();
             }
             _activeInputDevices.Clear();
-            _inputNodes.Clear();
+            
+            _inputNodesStaging.Clear();
+            _inputNodesSnapshot = new Dictionary<MidiDeviceInfo, MidiInputNode>();
             
             foreach (var device in _activeOutputDevices)
             {
@@ -332,7 +351,8 @@ public sealed class MidiManager : IDisposable
             _outputNodes.Clear();
             
             _mpeZones.Clear();
-            _mpeParsers.Clear();
+            _mpeParsersStaging.Clear();
+            _mpeParsersSnapshot = new Dictionary<MidiDeviceInfo, MpeParser>();
         }
     }
     
@@ -391,26 +411,20 @@ public sealed class MidiManager : IDisposable
             switch (message.Command)
             {
                 case MidiCommand.NoteOn when message.Velocity > 0:
-                    if (_freeChannels.Count > 0)
-                    {
-                        var assignedChannel = _freeChannels.Dequeue();
-                        _channelToNoteMap[assignedChannel] = message.NoteNumber;
-                        // Forward the Note On message on the newly assigned member channel
-                        return message with { StatusByte = (byte)(0x90 | (assignedChannel - 1)) };
-                    }
-                    return null; // No free channels, drop note
+                    if (_freeChannels.Count <= 0) return null; // No free channels, drop note
+                    var assignedChannel = _freeChannels.Dequeue();
+                    _channelToNoteMap[assignedChannel] = message.NoteNumber;
+                    // Forward the Note On message on the newly assigned member channel
+                    return message with { StatusByte = (byte)(0x90 | (assignedChannel - 1)) };
 
                 case MidiCommand.NoteOff:
                 case MidiCommand.NoteOn when message.Velocity == 0:
                     // Find which channel was playing this note, free it, and forward the Note Off
                     var channelToFree = _channelToNoteMap.FirstOrDefault(kvp => kvp.Value == message.NoteNumber).Key;
-                    if (channelToFree != 0)
-                    {
-                        _channelToNoteMap.Remove(channelToFree);
-                        _freeChannels.Enqueue(channelToFree);
-                        return message with { StatusByte = (byte)(0x80 | (channelToFree - 1)) };
-                    }
-                    return null;
+                    if (channelToFree == 0) return null;
+                    _channelToNoteMap.Remove(channelToFree);
+                    _freeChannels.Enqueue(channelToFree);
+                    return message with { StatusByte = (byte)(0x80 | (channelToFree - 1)) };
 
                 case MidiCommand.PitchBend:
                     if (_channelToNoteMap.TryGetValue(message.Channel, out var note))

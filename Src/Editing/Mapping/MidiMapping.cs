@@ -5,10 +5,29 @@
 /// </summary>
 public enum MidiMappingSourceType
 {
+    /// <summary>
+    /// A standard MIDI Control Change message (CC 0-127).
+    /// </summary>
     ControlChange,
+
+    /// <summary>
+    /// A MIDI Note On message, typically used for triggers or velocity-sensitive controls.
+    /// </summary>
     NoteOn,
+
+    /// <summary>
+    /// A MIDI Note Off message, typically used to detect the release of a key/pad.
+    /// </summary>
     NoteOff,
+
+    /// <summary>
+    /// A 14-bit Pitch Bend message.
+    /// </summary>
     PitchBend,
+
+    /// <summary>
+    /// A high-resolution 14-bit Control Change message, typically implemented using NRPN or RPN.
+    /// </summary>
     HighResolutionControlChange
 }
 
@@ -21,14 +40,17 @@ public enum MidiMappingBehavior
     /// The transformed MIDI value directly sets the property value.
     /// </summary>
     Absolute,
+
     /// <summary>
     /// Each trigger flips the current value of a boolean property.
     /// </summary>
     Toggle,
+
     /// <summary>
     /// The mapping triggers a method call.
     /// </summary>
     Trigger,
+
     /// <summary>
     /// The incoming MIDI value increments or decrements the current property value.
     /// </summary>
@@ -40,7 +62,14 @@ public enum MidiMappingBehavior
 /// </summary>
 public enum MidiMappingTargetType
 {
+    /// <summary>
+    /// The mapping targets a public property on the object.
+    /// </summary>
     Property,
+
+    /// <summary>
+    /// The mapping targets a public method on the object.
+    /// </summary>
     Method
 }
 
@@ -53,6 +82,7 @@ public enum MidiMappingArgumentSource
     /// Use the incoming MIDI value (e.g., velocity, CC value).
     /// </summary>
     MidiValue,
+
     /// <summary>
     /// Use a fixed, constant value defined in the mapping.
     /// </summary>
@@ -64,8 +94,19 @@ public enum MidiMappingArgumentSource
 /// </summary>
 public enum MidiMappingCurveType
 {
+    /// <summary>
+    /// A straight, 1:1 scaling between the source and target ranges.
+    /// </summary>
     Linear,
+
+    /// <summary>
+    /// A curve where small changes in the source result in larger changes in the target at the higher end of the range.
+    /// </summary>
     Exponential,
+
+    /// <summary>
+    /// A curve where small changes in the source result in larger changes in the target at the lower end of the range.
+    /// </summary>
     Logarithmic
 }
 
@@ -78,7 +119,7 @@ public record MidiInputSource
     /// The unique name of the MIDI input device.
     /// </summary>
     public string DeviceName { get; init; } = string.Empty;
-    
+
     /// <summary>
     /// The MIDI channel (1-16). A value of 0 represents Omni (any channel).
     /// </summary>
@@ -206,12 +247,12 @@ public sealed class MidiMapping
     /// This is primarily used for Absolute and Relative behaviors.
     /// </summary>
     public ValueTransformer Transformer { get; set; }
-    
+
     /// <summary>
     /// Gets or sets the behavior of the mapping (e.g., Absolute, Toggle).
     /// </summary>
     public MidiMappingBehavior Behavior { get; set; }
-    
+
     /// <summary>
     /// Gets an optional activation threshold. For Toggle or Trigger behaviors,
     /// the action only occurs if the incoming MIDI value is at or above this threshold.
@@ -231,7 +272,8 @@ public sealed class MidiMapping
     /// <param name="target">The target parameter.</param>
     /// <param name="transformer">The value transformation logic.</param>
     /// <param name="behavior">The behavior of the mapping.</param>
-    public MidiMapping(MidiInputSource source, MidiMappingTarget target, ValueTransformer transformer, MidiMappingBehavior behavior = MidiMappingBehavior.Absolute)
+    public MidiMapping(MidiInputSource source, MidiMappingTarget target, ValueTransformer transformer,
+        MidiMappingBehavior behavior = MidiMappingBehavior.Absolute)
     {
         Source = source;
         Target = target;

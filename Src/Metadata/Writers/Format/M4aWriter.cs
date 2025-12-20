@@ -27,7 +27,7 @@ internal class M4aWriter : ISoundFormatWriter
             await using var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read);
             
             var topLevelAtomsResult = MapTopLevelAtoms(sourceStream);
-            if(topLevelAtomsResult.IsFailure) return topLevelAtomsResult;
+            if(topLevelAtomsResult.IsFailure || topLevelAtomsResult.Value is null) return topLevelAtomsResult;
             var topLevelAtoms = topLevelAtomsResult.Value;
             
             var moovAtomInfo = topLevelAtoms.FirstOrDefault(a => a.Type == "moov");

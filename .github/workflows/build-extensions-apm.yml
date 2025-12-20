@@ -2,9 +2,6 @@ name: Build WebRTC Audio Processing
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'Native/webrtc-audio-processing/**'
 
 jobs:
   build:
@@ -51,7 +48,7 @@ jobs:
             cross_file: "linux-arm64.crossfile"
 
           # macOS builds
-          - os: macos-latest
+          - os: macos-15-intel
             rid: osx-x64
             platform: macOS
             arch: x86_64

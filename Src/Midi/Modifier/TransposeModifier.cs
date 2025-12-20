@@ -1,7 +1,6 @@
 ﻿using SoundFlow.Midi.Abstracts;
 using SoundFlow.Midi.Enums;
 using SoundFlow.Midi.Structs;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Midi.Modifier;
 
@@ -10,6 +9,9 @@ namespace SoundFlow.Midi.Modifier;
 /// </summary>
 public sealed class TransposeModifier : MidiModifier
 {
+    /// <inheritdoc />
+    public override string Name => $"Transpose ({Semitones} st)";
+    
     /// <summary>
     /// Gets or sets the amount to transpose in semitones. Can be positive or negative.
     /// </summary>
@@ -27,6 +29,12 @@ public sealed class TransposeModifier : MidiModifier
     /// <inheritdoc />
     public override IEnumerable<MidiMessage> Process(MidiMessage message)
     {
+        if (!IsEnabled)
+        {
+            yield return message;
+            yield break;
+        }
+
         if (message.Command is MidiCommand.NoteOn or MidiCommand.NoteOff)
         {
             var newNote = Math.Clamp(message.NoteNumber + Semitones, 0, 127);

@@ -6,7 +6,7 @@ namespace SoundFlow.Midi.Interfaces;
 /// <summary>
 /// Represents a destination for MIDI messages within the MIDI routing graph.
 /// </summary>
-public interface IMidiDestinationNode
+public interface IMidiDestinationNode : IMidiControllable
 {
     /// <summary>
     /// Gets a user-friendly name for the destination node.

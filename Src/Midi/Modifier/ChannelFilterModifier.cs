@@ -9,6 +9,9 @@ namespace SoundFlow.Midi.Modifier;
 /// </summary>
 public sealed class ChannelFilterModifier : MidiModifier
 {
+    /// <inheritdoc />
+    public override string Name => $"Channel Filter ({Channel})";
+    
     /// <summary>
     /// Gets or sets the MIDI channel to allow. Messages on other channels will be dropped.
     /// </summary>
@@ -26,6 +29,12 @@ public sealed class ChannelFilterModifier : MidiModifier
     /// <inheritdoc />
     public override IEnumerable<MidiMessage> Process(MidiMessage message)
     {
+        if (!IsEnabled)
+        {
+            yield return message;
+            yield break;
+        }
+
         if (message.Channel == Channel)
         {
             yield return message;

@@ -5,12 +5,39 @@ namespace SoundFlow.Metadata.Models;
 /// </summary>
 public sealed class SoundTags
 {
+    /// <summary>
+    /// Gets or sets the title of the audio file.
+    /// </summary>
     public string Title { get; internal set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the artist of the audio file.
+    /// </summary>
     public string Artist { get; internal set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the album of the audio file.
+    /// </summary>
     public string Album { get; internal set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the genre of the audio file.
+    /// </summary>
     public string Genre { get; internal set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the year of the audio file, if available.
+    /// </summary>
     public uint? Year { get; internal set; }
+
+    /// <summary>
+    /// Gets or sets the track number of the audio file, if available.
+    /// </summary>
     public uint? TrackNumber { get; internal set; }
+
+    /// <summary>
+    /// Gets or sets the embedded album art of the audio file, if available.
+    /// </summary>
     public byte[]? AlbumArt { get; internal set; }
     
     /// <summary>

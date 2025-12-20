@@ -55,8 +55,9 @@ internal sealed class MiniAudioPlaybackDevice : AudioPlaybackDevice
         var length = (int)frameCount * Format.Channels;
         if (length <= 0) return;
         
-        // Notify the engine about the number of samples being rendered for master clock calculations.
-        Engine.RaiseAudioFramesRendered(this, (int)frameCount);
+        // Update the cached EventArgs and notify engine
+        CachedRenderEventArgs.FrameCount = (int)frameCount;
+        Engine.RaiseAudioFramesRendered(CachedRenderEventArgs);
 
         // Fast path: If the device format is F32, we can process directly on the output buffer.
         if (device.Format.Format == SampleFormat.F32)

@@ -7,9 +7,24 @@ namespace SoundFlow.Metadata.Models;
 /// </summary>
 public sealed class CuePoint
 {
+    /// <summary>
+    /// Gets the unique identifier for the cue point or track number (e.g., in a CD context).
+    /// </summary>
     public uint Id { get; internal set; }
+    
+    /// <summary>
+    /// Gets the position of the cue point in audio samples from the beginning of the file.
+    /// </summary>
     public ulong PositionSamples { get; internal set; }
+    
+    /// <summary>
+    /// Gets the label or title associated with the cue point.
+    /// </summary>
     public string Label { get; internal set; } = string.Empty;
+    
+    /// <summary>
+    /// Gets the time offset of the cue point, usually calculated from the <see cref="PositionSamples"/>.
+    /// </summary>
     public TimeSpan StartTime { get; internal set; }
 }
 
@@ -19,6 +34,10 @@ public sealed class CuePoint
 public sealed class CueSheet
 {
     private readonly List<CuePoint> _cuePoints = new();
+    
+    /// <summary>
+    /// Gets a read-only list of the cue points contained in this sheet.
+    /// </summary>
     public IReadOnlyList<CuePoint> CuePoints => _cuePoints.AsReadOnly();
 
     internal void Add(CuePoint point)
@@ -31,6 +50,10 @@ public sealed class CueSheet
         _cuePoints.Sort((a, b) => a.PositionSamples.CompareTo(b.PositionSamples));
     }
 
+    /// <summary>
+    /// Returns a string representation of the Cue Sheet, listing its points.
+    /// </summary>
+    /// <returns>A formatted string detailing the cue points.</returns>
     public override string ToString()
     {
         var sb = new StringBuilder();

@@ -42,7 +42,7 @@ namespace SoundFlow.Visualization
         /// <summary>
         /// Gets the spectrum data.
         /// </summary>
-        public ReadOnlySpan<float> SpectrumData => _spectrumData;
+        public float[] SpectrumData => _spectrumData;
 
         /// <inheritdoc/>
         protected override void Analyze(Span<float> buffer, int channels)

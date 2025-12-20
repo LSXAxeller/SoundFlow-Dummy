@@ -10,7 +10,7 @@ public class ProjectSaveOptions
     /// It is recommended to use the library's default version unless you have a specific need for version management.
     /// The current default is "1.3.0".
     /// </summary>
-    public string ProjectFileVersion { get; set; } = "1.3.0";
+    public string ProjectFileVersion { get; set; } = "1.3.1";
 
     /// <summary>
     /// The name of the subfolder where consolidated media files will be stored, relative to the project file.

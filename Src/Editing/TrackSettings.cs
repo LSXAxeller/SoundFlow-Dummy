@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using SoundFlow.Abstracts;
 using SoundFlow.Interfaces;
 using SoundFlow.Midi.Abstracts;
@@ -8,6 +9,7 @@ namespace SoundFlow.Editing;
 /// Represents the configurable settings for a <see cref="Track"/> or <see cref="MidiTrack"/>,
 /// controlling its overall playback characteristics such as volume, pan, and mute/solo states.
 /// </summary>
+[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicMethods)]
 public class TrackSettings : IMidiMappable
 {
     private float _volume = 1.0f;
@@ -154,6 +156,7 @@ public class TrackSettings : IMidiMappable
     {
         ArgumentNullException.ThrowIfNull(modifier);
         Modifiers.Add(modifier);
+        ParentTrack?.ParentComposition?.RegisterMappableObject(modifier);
         MarkDirty();
     }
     /// <summary>
@@ -165,6 +168,7 @@ public class TrackSettings : IMidiMappable
     {
         var removed = Modifiers.Remove(modifier);
         if (removed) MarkDirty();
+        ParentTrack?.ParentComposition?.UnregisterMappableObject(modifier);
         return removed;
     }
     /// <summary>
@@ -187,6 +191,7 @@ public class TrackSettings : IMidiMappable
     {
         ArgumentNullException.ThrowIfNull(analyzer);
         Analyzers.Add(analyzer);
+        ParentTrack?.ParentComposition?.RegisterMappableObject(analyzer);
         MarkDirty();
     }
     /// <summary>
@@ -198,6 +203,7 @@ public class TrackSettings : IMidiMappable
     {
         var removed = Analyzers.Remove(analyzer);
         if (removed) MarkDirty();
+        ParentTrack?.ParentComposition?.UnregisterMappableObject(analyzer);
         return removed;
     }
 
@@ -214,6 +220,7 @@ public class TrackSettings : IMidiMappable
     {
         ArgumentNullException.ThrowIfNull(modifier);
         MidiModifiers.Add(modifier);
+        ParentTrack?.ParentComposition?.RegisterMappableObject(modifier);
         MarkDirty();
     }
 
@@ -226,6 +233,7 @@ public class TrackSettings : IMidiMappable
     {
         var removed = MidiModifiers.Remove(modifier);
         if (removed) MarkDirty();
+        ParentTrack?.ParentComposition?.UnregisterMappableObject(modifier);
         return removed;
     }
 

@@ -2,9 +2,6 @@ name: Build FFmpeg Codec Integration
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'Native/ffmpeg-codec/**'
 
 # Cancel in-progress runs on new commits to the same branch
 concurrency:
@@ -165,7 +162,7 @@ jobs:
       matrix:
         include:
           - arch: x64
-            os: macos-13
+            os: macos-15-intel
             cmake_arch: x86_64
           - arch: arm64
             os: macos-14

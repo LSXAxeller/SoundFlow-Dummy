@@ -212,7 +212,7 @@ public record struct AudioFormat
     public static AudioFormat? GetFormatFromStream(Stream stream)
     {
         var metadata = SoundMetadataReader.Read(stream);
-        if(metadata.IsFailure) return null;
+        if(metadata.IsFailure || metadata.Value is null) return null;
         return new AudioFormat
         {
             Format = metadata.Value.BitsPerSample > 0 ? metadata.Value.BitsPerSample.GetSampleFormatFromBitsPerSample() : SampleFormat.S16, // Some formats may not have a valid bits per sample value, so we default to S16.

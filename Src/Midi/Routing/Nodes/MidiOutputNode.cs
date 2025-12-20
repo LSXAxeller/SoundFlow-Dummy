@@ -32,4 +32,10 @@ public sealed class MidiOutputNode : IMidiDestinationNode
     {
         return !Device.IsDisposed ? Device.SendMessage(message) : Result.Fail(new ObjectDisposedError(nameof(MidiOutputNode)));
     }
+
+    /// <inheritdoc />
+    public void ProcessMidiMessage(MidiMessage message)
+    {
+        ProcessMessage(message);
+    }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using SoundFlow.Interfaces;
 using SoundFlow.Structs;
 
@@ -6,6 +7,7 @@ namespace SoundFlow.Abstracts;
 /// <summary>
 /// Base class for audio analyzer components that extract data for visualizers.
 /// </summary>
+[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicMethods)]
 public abstract class AudioAnalyzer : IMidiMappable
 {
     /// <inheritdoc />

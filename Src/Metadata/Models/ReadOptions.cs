@@ -5,7 +5,16 @@ namespace SoundFlow.Metadata.Models;
 /// </summary>
 public enum DurationAccuracy
 {
+    /// <summary>
+    ///     Use the bitrate of the first frame to estimate the duration.
+    ///     This method is faster but may not be accurate for VBR files.
+    /// </summary>
     FastEstimate,
+
+    /// <summary>
+    ///     Scan the entire file to accurately calculate the duration.
+    ///     This method is slower but provides more accurate results for VBR files.
+    /// </summary>
     AccurateScan
 }
 

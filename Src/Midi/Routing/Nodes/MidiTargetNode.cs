@@ -13,16 +13,16 @@ public sealed class MidiTargetNode : IMidiDestinationNode
     /// <summary>
     /// The internal component to send MIDI messages to.
     /// </summary>
-    public readonly IMidiControllable Target;
+    public readonly IMidiControllable? Target;
 
     /// <inheritdoc />
-    public string Name => Target is SoundComponent sc ? sc.Name : Target.GetType().Name;
+    public string Name => Target is SoundComponent sc ? sc.Name : Target?.GetType().Name ?? "Unknown";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MidiTargetNode"/> class.
     /// </summary>
     /// <param name="target">The internal component to send MIDI messages to.</param>
-    public MidiTargetNode(IMidiControllable target)
+    public MidiTargetNode(IMidiControllable? target)
     {
         Target = target;
     }
@@ -32,7 +32,13 @@ public sealed class MidiTargetNode : IMidiDestinationNode
     {
         // NOTE: Adding a try-catch here to handle failures might be performance-intensive in real-time,
         // since it's calling `ProcessMidiMessage` which exist in almost every single component.
-        Target.ProcessMidiMessage(message);
+        Target?.ProcessMidiMessage(message);
         return Result.Ok();
+    }
+    
+    /// <inheritdoc />
+    public void ProcessMidiMessage(MidiMessage message)
+    {
+        ProcessMessage(message);
     }
 }

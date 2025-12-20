@@ -1,4 +1,5 @@
-﻿using SoundFlow.Interfaces;
+﻿using SoundFlow.Abstracts;
+using SoundFlow.Interfaces;
 using SoundFlow.Metadata.Midi;
 using SoundFlow.Midi.Interfaces;
 using SoundFlow.Midi.Routing.Nodes;
@@ -91,72 +92,100 @@ public class MidiTrack
     }
 
     /// <summary>
-    /// Renders the MIDI output for this track for a given time range by sending MIDI events to its target.
-    /// This method does not produce audio directly.
+    /// Renders the MIDI output for this track for a given time range by driving its target
+    /// synthesizer to produce audio in a sample-accurate manner.
     /// </summary>
     /// <param name="startTime">The global timeline start time for rendering.</param>
-    /// <param name="endTime">The global timeline end time for rendering.</param>
-    public void Render(TimeSpan startTime, TimeSpan endTime)
+    /// <param name="duration">The duration of audio to render.</param>
+    /// <param name="outputBuffer">The buffer to fill with rendered audio. This method mixes its output into the buffer.</param>
+    public void Render(TimeSpan startTime, TimeSpan duration, Span<float> outputBuffer)
     {
-        if (!Settings.IsEnabled || Settings.IsMuted || Target == null || ParentComposition == null)
+        if (!Settings.IsEnabled || Settings.IsMuted || ParentComposition == null ||
+            Target is not MidiTargetNode { Target: SoundComponent targetComponent })
         {
             return;
         }
 
-        foreach (var segment in Segments)
-        {
-            var segmentStart = segment.TimelineStartTime;
-            var segmentEnd = segmentStart + segment.SourceDuration;
+        var ticksPerQuarterNote = ParentComposition.TicksPerQuarterNote;
+        var tempoTrack = ParentComposition.TempoTrack;
 
-            // Check for overlap between the render window and the segment
-            if (startTime < segmentEnd && endTime > segmentStart)
+        var startTick = MidiTimeConverter.GetTickForTimeSpan(startTime, ticksPerQuarterNote, tempoTrack);
+        var endTick = MidiTimeConverter.GetTickForTimeSpan(startTime + duration, ticksPerQuarterNote, tempoTrack);
+
+        var eventsToProcess = Segments
+            .SelectMany(seg =>
             {
-                var overlapStart = startTime > segmentStart ? startTime : segmentStart;
-                var overlapEnd = endTime < segmentEnd ? endTime : segmentEnd;
-                
-                var timeIntoSegmentStart = overlapStart - segmentStart;
-                var timeIntoSegmentEnd = overlapEnd - segmentStart;
+                var segmentStartTick = MidiTimeConverter.GetTickForTimeSpan(seg.TimelineStartTime, ticksPerQuarterNote, tempoTrack);
+                return seg.DataProvider.Events.Select(e => (AbsoluteTick: e.AbsoluteTimeTicks + segmentStartTick, e.Event));
+            })
+            .Where(e => e.AbsoluteTick >= startTick && e.AbsoluteTick < endTick)
+            .OrderBy(e => e.AbsoluteTick)
+            .ToList();
 
-                var startTick = MidiTimeConverter.GetTickForTimeSpan(timeIntoSegmentStart, segment.DataProvider.TicksPerQuarterNote, ParentComposition.TempoTrack);
-                var endTick = MidiTimeConverter.GetTickForTimeSpan(timeIntoSegmentEnd, segment.DataProvider.TicksPerQuarterNote, ParentComposition.TempoTrack);
+        var lastRenderedTick = startTick;
+        var samplesRendered = 0;
 
-                foreach (var timedEvent in segment.DataProvider.GetEvents(startTick, endTick))
+        foreach (var (absoluteTick, midiEvent) in eventsToProcess)
+        {
+            // 1. Render audio from the last event up to the current one.
+            var timeOfThisEvent = MidiTimeConverter.GetTimeSpanForTick(absoluteTick, ticksPerQuarterNote, tempoTrack);
+            var timeOfLastEvent = MidiTimeConverter.GetTimeSpanForTick(lastRenderedTick, ticksPerQuarterNote, tempoTrack);
+            var timeToRender = timeOfThisEvent - timeOfLastEvent;
+
+            if (timeToRender > TimeSpan.Zero)
+            {
+                var samplesToRender = (int)(timeToRender.TotalSeconds * ParentComposition.SampleRate * ParentComposition.TargetChannels);
+                if (samplesRendered + samplesToRender > outputBuffer.Length)
                 {
-                    switch (timedEvent.Event)
-                    {
-                        case ChannelEvent channelEvent:
-                        {
-                            var messagesToProcess = new List<MidiMessage> { channelEvent.Message };
-                            foreach (var modifier in Settings.MidiModifiers)
-                            {
-                                if (!modifier.IsEnabled) continue;
-                            
-                                var nextMessages = new List<MidiMessage>();
-                                foreach (var msg in messagesToProcess)
-                                {
-                                    nextMessages.AddRange(modifier.Process(msg));
-                                }
-                                messagesToProcess = nextMessages;
-                            }
+                    samplesToRender = outputBuffer.Length - samplesRendered;
+                }
 
-                            foreach (var finalMessage in messagesToProcess)
-                            {
-                                Target.ProcessMessage(finalMessage);
-                            }
-
-                            break;
-                        }
-                        case SysExEvent sysExEvent:
-                        {
-                            // SysEx messages bypass the modifier chain and are only sent to physical output devices.
-                            if (Target is MidiOutputNode { Device.IsDisposed: false } outputNode) 
-                                outputNode.Device.SendSysEx(sysExEvent.Data);
-
-                            break;
-                        }
-                    }
+                if (samplesToRender > 0)
+                {
+                    targetComponent.Process(outputBuffer.Slice(samplesRendered, samplesToRender), ParentComposition.TargetChannels);
+                    samplesRendered += samplesToRender;
                 }
             }
+
+            // 2. Process the current MIDI event.
+            switch (midiEvent)
+            {
+                case ChannelEvent channelEvent:
+                    var messagesToProcess = new List<MidiMessage> { channelEvent.Message };
+                    
+                    foreach (var modifier in Settings.MidiModifiers)
+                    {
+                        if (!modifier.IsEnabled) continue;
+                        
+                        var nextMessages = new List<MidiMessage>();
+                        foreach (var msg in messagesToProcess)
+                        {
+                            nextMessages.AddRange(modifier.Process(msg));
+                        }
+                        messagesToProcess = nextMessages;
+                    }
+
+                    foreach (var finalMessage in messagesToProcess)
+                    {
+                        Target.ProcessMessage(finalMessage);
+                    }
+                    break;
+                case SysExEvent sysExEvent:
+                    // SysEx messages bypass the modifier chain and are only sent to physical output devices.
+                    if (Target is MidiOutputNode { Device.IsDisposed: false } outputNode) 
+                        outputNode.Device.SendSysEx(sysExEvent.Data);
+                    
+                    break;
+            }
+
+            lastRenderedTick = absoluteTick;
+        }
+
+        // 3. Render any remaining audio from the last event to the end of the buffer.
+        var remainingSamples = outputBuffer.Length - samplesRendered;
+        if (remainingSamples > 0)
+        {
+            targetComponent.Process(outputBuffer.Slice(samplesRendered, remainingSamples), ParentComposition.TargetChannels);
         }
     }
     

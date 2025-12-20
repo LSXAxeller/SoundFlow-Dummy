@@ -61,9 +61,6 @@ internal sealed class MidiChannel
                 var bank = (msb * 128) + lsb;
     
                 _currentInstrument = _instrumentBank.GetInstrument(bank, message.Data1);
-                if(_currentInstrument.IsEmpty || _currentInstrument.IsFallback) 
-                    Console.WriteLine($"Program change to {message.Data1} in bank {bank} failed, Empty: {_currentInstrument.IsEmpty}, Fallback: {_currentInstrument.IsFallback}. Using fallback instrument.");
-                
                 break;
             case MidiCommand.PitchBend:
                 // Pitch bend is 14-bit, centered at 8192. Range is typically +/- 2 semitones.
@@ -127,6 +124,30 @@ internal sealed class MidiChannel
             }
             buffer[i] = sample;
         }
+    }
+    
+    /// <summary>
+    /// Resets the channel to its default state, killing all active voices.
+    /// </summary>
+    public void Reset()
+    {
+        lock (_voiceLock)
+        {
+            foreach (var voice in _activeVoices)
+            {
+                voice.Kill();
+            }
+            _activeVoices.Clear();
+        }
+        
+        // Reset channel state to defaults
+        _volume = 1.0f;
+        _pan = 0.5f;
+        _pitchBend = 0.0f;
+        _damperPedalOn = false;
+        _currentBankMsb = -1;
+        _currentBankLsb = -1;
+        _currentInstrument = _instrumentBank.GetInstrument(0, 0);
     }
 
     internal IVoice NoteOn(int noteNumber, int velocity)

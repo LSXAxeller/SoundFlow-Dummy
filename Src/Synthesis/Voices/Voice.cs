@@ -95,58 +95,71 @@ internal sealed class Voice : IVoice
     /// <inheritdoc />
     public void Render(Span<float> buffer)
     {
+        var channels = _context.SampleRate > 0 ? buffer.Length / (int)((buffer.Length / (float)_context.SampleRate) * _context.SampleRate) : 2;
+        var frameCount = buffer.Length / channels;
+
         // 1. Generate master envelopes
         float[]? ampEnvBuffer = null;
         float[]? filterEnvBuffer = null;
         try
         {
-            ampEnvBuffer = ArrayPool<float>.Shared.Rent(buffer.Length);
-            var ampEnvSpan = ampEnvBuffer.AsSpan(0, buffer.Length);
+            ampEnvBuffer = ArrayPool<float>.Shared.Rent(frameCount);
+            var ampEnvSpan = ampEnvBuffer.AsSpan(0, frameCount);
             _ampEnvelope.Generate(ampEnvSpan, _context);
 
             if (_filterEnvelope != null)
             {
-                filterEnvBuffer = ArrayPool<float>.Shared.Rent(buffer.Length);
-                var filterEnvSpan = filterEnvBuffer.AsSpan(0, buffer.Length);
+                filterEnvBuffer = ArrayPool<float>.Shared.Rent(frameCount);
+                var filterEnvSpan = filterEnvBuffer.AsSpan(0, frameCount);
                 _filterEnvelope.Generate(filterEnvSpan, _context);
             }
 
             // 2. Render and mix unison layers
             float[]? layerBuffer = null;
-            if (_unisonCount > 1)
-            {
-                layerBuffer = ArrayPool<float>.Shared.Rent(buffer.Length);
-            }
-            
             try
             {
+                // Allocate a buffer for a single mono frame's worth of data.
+                layerBuffer = ArrayPool<float>.Shared.Rent(frameCount);
+                var layerSpan = layerBuffer.AsSpan(0, frameCount);
+
                 buffer.Clear(); // Start with a clean buffer to mix into
-                for (int i = 0; i < _unisonCount; i++)
+                for (var i = 0; i < _unisonCount; i++)
                 {
                     var layer = _unisonLayers[i];
-                    var layerContext = _context;
-                    
+
                     // Apply unison detune and MPE per-note pitch bend
                     var pitchBendSemitones = _perNotePitchBend + _context.ChannelPitchBend;
                     var frequencyMultiplier = MathF.Pow(2.0f, pitchBendSemitones / 12.0f);
-                    layerContext.Frequency = _context.BaseFrequency * layer.DetuneRatio * frequencyMultiplier;
+                    _context.Frequency = _context.BaseFrequency * layer.DetuneRatio * frequencyMultiplier;
                     
-                    var targetBuffer = (layerBuffer != null) ? layerBuffer.AsSpan(0, buffer.Length) : buffer;
+                    // Generate a mono signal for the current layer
+                    layer.Oscillator.Generate(layerSpan, _context);
 
-                    layer.Oscillator.Generate(targetBuffer, layerContext);
-
-                    // Apply panning and mix into the main buffer
-                    for (var j = 0; j < buffer.Length; j += 2)
+                    // Apply panning and mix into the main multichannel buffer
+                    if (channels == 2) // Optimized path for stereo
                     {
                         var panAngle = layer.Pan * MathF.PI / 2.0f;
                         var leftGain = MathF.Cos(panAngle);
                         var rightGain = MathF.Sin(panAngle);
-
-                        // Assuming targetBuffer is mono, so we use the same sample for L/R
-                        var monoSample = targetBuffer[j]; // We only need to read every other sample if the source is mono
                         
-                        buffer[j] += monoSample * leftGain;
-                        buffer[j+1] += monoSample * rightGain;
+                        for (var j = 0; j < frameCount; j++)
+                        {
+                            var monoSample = layerSpan[j];
+                            buffer[j * 2] += monoSample * leftGain;
+                            buffer[j * 2 + 1] += monoSample * rightGain;
+                        }
+                    }
+                    else // Generic path for any channel count
+                    {
+                        for (var j = 0; j < frameCount; j++)
+                        {
+                            for (var c = 0; c < channels; c++)
+                            {
+                                // Simple panning for multichannel: fade between first two channels
+                                var gain = c == 0 ? 1.0f - layer.Pan : (c == 1 ? layer.Pan : 0.5f);
+                                buffer[j * channels + c] += layerSpan[j] * gain;
+                            }
+                        }
                     }
                 }
             }
@@ -155,33 +168,44 @@ internal sealed class Voice : IVoice
                 if(layerBuffer != null) ArrayPool<float>.Shared.Return(layerBuffer);
             }
 
-
             // Normalize the mixed unison signal to prevent clipping before filtering
-            var normFactor = 1.0f / MathF.Sqrt(_unisonCount);
-            for (int i = 0; i < buffer.Length; i++)
+            if (_unisonCount > 1)
             {
-                buffer[i] *= normFactor;
+                var normFactor = 1.0f / MathF.Sqrt(_unisonCount);
+                for (var i = 0; i < buffer.Length; i++)
+                {
+                    buffer[i] *= normFactor;
+                }
             }
 
             // 3. Apply the main filter to the mixed signal
             if (_filter != null && filterEnvBuffer != null)
             {
-                var filterEnvSpan = filterEnvBuffer.AsSpan(0, buffer.Length);
-                for (var i = 0; i < buffer.Length; i++)
+                var filterEnvSpan = filterEnvBuffer.AsSpan(0, frameCount);
+                for (var i = 0; i < frameCount; i++)
                 {
                     // Modulate cutoff with envelope, velocity, pressure, and timbre
                     var velocityInfluence = (_context.Velocity / 127.0f) * 4000f;
                     var pressureInfluence = _perNotePressure * 2000f;
                     var timbreInfluence = _perNoteTimbre * 3000f;
                     _filter.CutoffFrequency = 200f + velocityInfluence + pressureInfluence + timbreInfluence + (filterEnvSpan[i] * 8000f);
-                    buffer[i] = _filter.ProcessSample(buffer[i], 1);
+                    
+                    for (var c = 0; c < channels; c++)
+                    {
+                        var sampleIndex = i * channels + c;
+                        buffer[sampleIndex] = _filter.ProcessSample(buffer[sampleIndex], c);
+                    }
                 }
             }
             
             // 4. Apply the final amplitude envelope
-            for (var i = 0; i < buffer.Length; i++)
+            for (var i = 0; i < frameCount; i++)
             {
-                buffer[i] *= ampEnvSpan[i];
+                var envelopeValue = ampEnvSpan[i];
+                for (var c = 0; c < channels; c++)
+                {
+                    buffer[i * channels + c] *= envelopeValue;
+                }
             }
         }
         finally

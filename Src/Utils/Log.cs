@@ -20,7 +20,11 @@ public enum LogLevel
     /// <summary>
     /// Indicates an error that has occurred, which may affect functionality.
     /// </summary>
-    Error
+    Error,
+    /// <summary>
+    /// Indicates a fatal error that has occurred, which will prevent the application from continuing.
+    /// </summary>
+    Critical
 }
 
 /// <summary>
@@ -58,4 +62,10 @@ public static class Log
     /// </summary>
     /// <param name="message">The log message.</param>
     public static void Error(string message) => OnLog?.Invoke(LogLevel.Error, message);
+    
+    /// <summary>
+    /// For public library use. Invokes the OnLog event with a Critical level message.
+    /// </summary>
+    /// <param name="message">The log message.</param>
+    public static void Critical(string message) => OnLog?.Invoke(LogLevel.Critical, message);
 }

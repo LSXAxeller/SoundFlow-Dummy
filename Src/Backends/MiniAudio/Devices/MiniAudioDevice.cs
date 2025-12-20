@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
 using SoundFlow.Abstracts.Devices;
+using SoundFlow.Backends.MiniAudio.Enums;
 using SoundFlow.Backends.MiniAudio.Structs;
 using SoundFlow.Enums;
 using SoundFlow.Structs;
-using Result = SoundFlow.Enums.Result;
 
 namespace SoundFlow.Backends.MiniAudio.Devices;
 
@@ -52,7 +52,7 @@ internal sealed class MiniAudioDevice : IDisposable
             var result = Native.DeviceInit(context, deviceConfig, _device);
             Native.Free(deviceConfig);
 
-            if (result != Result.Success)
+            if (result != MiniAudioResult.Success)
             {
                 Native.Free(_device);
                 throw new InvalidOperationException($"Unable to init device {info?.Name ?? "Default Device"}. Result: {result}");

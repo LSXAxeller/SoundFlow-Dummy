@@ -68,21 +68,6 @@ public sealed class SoundFontBank : IInstrumentBank, IDisposable
         // Create the internal fallback instrument for this specific bank
         var fallbackDef = new VoiceDefinition(format, Oscillator.WaveformType.Sine, 1, 0, 0.01f, 0.1f, 0.0f, 0.2f);
         _fallbackInstrument = new Instrument([], fallbackDef, isFallback: true);
-
-#if DEBUG
-        // TODO: Remove this debug code
-        var missing = _instruments.Where(x => x.Value.IsEmpty || x.Value.IsFallback).ToList();
-        var available = _instruments.Where(x => x.Value is { IsEmpty: false, IsFallback: false }).OrderBy(x => x.Key.bank).ThenBy(x => x.Key.program).ToList();
-        Console.WriteLine($"Missing: {missing.Count}, Available: {available.Count}");
-        foreach(var instrument in missing)
-        {
-            Console.WriteLine($"MISSING - Bank: {instrument.Key.bank}, Program: {instrument.Key.program}");
-        }
-        foreach(var instrument in available)
-        {
-            Console.WriteLine($"Available - Bank: {instrument.Key.bank}, Program: {instrument.Key.program}");
-        }
-#endif
     }
 
     /// <inheritdoc />

@@ -3,12 +3,11 @@ using SoundFlow.Structs;
 using SoundFlow.Utils;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Text;
 using SoundFlow.Abstracts.Devices;
 using SoundFlow.Backends.MiniAudio.Devices;
 using SoundFlow.Backends.MiniAudio.Enums;
-using SoundFlow.Midi.Devices;
-using SoundFlow.Midi.Structs;
-using Result = SoundFlow.Enums.Result;
+using SoundFlow.Backends.MiniAudio.Structs;
 
 namespace SoundFlow.Backends.MiniAudio;
 
@@ -165,7 +164,7 @@ public class MiniAudioEngine : AudioEngine
         {
             // Use the marshaled pointer and count in the native call.
             var result = Native.ContextInit(pBackends, backendCount, nint.Zero, _context);
-            if (result != Result.Success)
+            if (result != MiniAudioResult.Success)
                 throw new InvalidOperationException($"Unable to init MiniAudio context. Result: {result}");
 
             // Query and store the active backend for user feedback.
@@ -355,7 +354,7 @@ public class MiniAudioEngine : AudioEngine
         var result = Native.GetDevices(_context, out var pPlaybackDevices, out var pCaptureDevices,
             out var playbackCountUint, out var captureCountUint);
 
-        if (result != Result.Success)
+        if (result != MiniAudioResult.Success)
             throw new InvalidOperationException($"Unable to get devices. MiniAudio result: {result}");
         
         var playbackCount = (int)playbackCountUint;
@@ -366,31 +365,72 @@ public class MiniAudioEngine : AudioEngine
             // Marshal playback devices
             if (playbackCount > 0 && pPlaybackDevices != nint.Zero)
             {
-                if (PlaybackDevices.Length != playbackCount) PlaybackDevices = new DeviceInfo[playbackCount];
-
-                // Read the native device information directly into our managed array.
-                pPlaybackDevices.ReadIntoArray(PlaybackDevices, playbackCount);
+                // 1. Create array for native structs
+                var nativePlayback = new DeviceInfoNative[playbackCount];
+                // 2. Read from pointer into native structs
+                pPlaybackDevices.ReadIntoArray(nativePlayback, playbackCount);
+                
+                // 3. Convert to public structs (Deep Copy)
+                PlaybackDevices = new DeviceInfo[playbackCount];
+                for (var i = 0; i < playbackCount; i++)
+                {
+                    PlaybackDevices[i] = ConvertFromNative(nativePlayback[i]);
+                }
             }
             else
             {
-                if (PlaybackDevices.Length != 0) PlaybackDevices = [];
+                PlaybackDevices = [];
             }
 
             // Marshal capture devices
             if (captureCount > 0 && pCaptureDevices != nint.Zero)
             {
-                if (CaptureDevices.Length != captureCount) CaptureDevices = new DeviceInfo[captureCount];
-                pCaptureDevices.ReadIntoArray(CaptureDevices, captureCount);
+                var nativeCapture = new DeviceInfoNative[captureCount];
+                pCaptureDevices.ReadIntoArray(nativeCapture, captureCount);
+
+                CaptureDevices = new DeviceInfo[captureCount];
+                for (var i = 0; i < captureCount; i++)
+                {
+                    CaptureDevices[i] = ConvertFromNative(nativeCapture[i]);
+                }
             }
             else
             {
-                if (CaptureDevices.Length != 0) CaptureDevices = [];
+                CaptureDevices = [];
             }
         }
         finally
         {
+            // 4. Now it is safe to free native memory, as we have copied the data to managed arrays
             if (pPlaybackDevices != nint.Zero) Native.FreeDeviceInfos(pPlaybackDevices, playbackCountUint);
             if (pCaptureDevices != nint.Zero) Native.FreeDeviceInfos(pCaptureDevices, captureCountUint);
         }
+    }
+
+    private static DeviceInfo ConvertFromNative(DeviceInfoNative native)
+    {
+        // Decode Name
+        var name = string.Empty;
+        if (native.NameBytes.Length > 0)
+        {
+            var count = Array.IndexOf(native.NameBytes, (byte)0);
+            if (count == -1) count = native.NameBytes.Length;
+            name = Encoding.UTF8.GetString(native.NameBytes, 0, count);
+        }
+
+        // Deep copy formats
+        var formats = Array.Empty<NativeDataFormat>();
+        if (native.NativeDataFormatCount > 0 && native.NativeDataFormats != IntPtr.Zero)
+        {
+            formats = native.NativeDataFormats.ReadArray<NativeDataFormat>((int)native.NativeDataFormatCount);
+        }
+
+        return new DeviceInfo
+        {
+            Id = native.Id,
+            Name = name,
+            IsDefault = native.IsDefault,
+            SupportedDataFormats = formats
+        };
     }
 }

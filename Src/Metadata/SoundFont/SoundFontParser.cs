@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Text;
 using SoundFlow.Structs;
 
@@ -80,13 +81,12 @@ internal static class SoundFontParser
         }
     }
 
-    private static T[] ReadRecords<T>(BinaryReader reader, uint chunkSize) where T : struct
+    private static T[] ReadRecords<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] T>(BinaryReader reader, uint chunkSize) where T : struct
     {
         var recordSize = Marshal.SizeOf<T>();
         if (recordSize == 0 || chunkSize % recordSize != 0)
-        {
             throw new InvalidDataException($"Chunk size {chunkSize} is not a multiple of record size {recordSize} for type {typeof(T).Name}.");
-        }
+        
         var recordCount = (int)(chunkSize / recordSize);
         var records = new T[recordCount];
         var bytes = reader.ReadBytes((int)chunkSize);

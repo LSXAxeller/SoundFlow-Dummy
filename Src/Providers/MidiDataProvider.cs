@@ -83,6 +83,14 @@ public sealed class MidiDataProvider
     }
 
     /// <summary>
+    /// Initializes a new instance of the <see cref="MidiDataProvider"/> class from a MIDI file stream.
+    /// </summary>
+    /// <param name="stream">The stream containing the MIDI file data.</param>
+    public MidiDataProvider(Stream stream) : this(MidiFileParser.Parse(stream))
+    {
+    }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="MidiDataProvider"/> class from a mutable <see cref="MidiSequence"/>.
     /// This acts as a read-only "view" for the playback engine.
     /// </summary>

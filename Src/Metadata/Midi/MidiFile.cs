@@ -15,7 +15,7 @@ public sealed class MidiFile
     /// <summary>
     /// Gets the time division, specifying the number of ticks per quarter note.
     /// </summary>
-    public int TicksPerQuarterNote { get; internal set; }
+    public int TicksPerQuarterNote { get; set; }
 
     /// <summary>
     /// Gets the list of tracks contained in the MIDI file.

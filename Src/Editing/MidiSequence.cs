@@ -1,9 +1,7 @@
-﻿using SoundFlow.Enums;
-using SoundFlow.Metadata.Midi;
+﻿using SoundFlow.Metadata.Midi;
 using SoundFlow.Metadata.Midi.Enums;
 using SoundFlow.Midi.Enums;
 using SoundFlow.Midi.Structs;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Editing;
 
@@ -38,9 +36,8 @@ public class MidiSequence
     
     /// <summary>
     /// Initializes a new instance of the <see cref="MidiSequence"/> class from collections of editable MIDI objects.
-    /// Used internally for operations like splitting and joining segments.
     /// </summary>
-    private MidiSequence(
+    public MidiSequence(
         int ticksPerQuarterNote,
         IEnumerable<MidiNote> notes,
         IEnumerable<(int ccNumber, ControlPoint point)> ccEvents,

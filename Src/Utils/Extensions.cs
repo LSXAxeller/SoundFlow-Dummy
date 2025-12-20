@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using SoundFlow.Enums;
 
@@ -64,7 +65,7 @@ public static class Extensions
     /// <param name="destination">The pre-allocated array to write the structures into.</param>
     /// <param name="count">The number of structures to read.</param>
     /// <exception cref="ArgumentException">Thrown if the destination array is smaller than <paramref name="count"/>.</exception>
-    public static void ReadIntoArray<T>(this nint pointer, T[] destination, int count) where T : struct
+    public static void ReadIntoArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] T>(this nint pointer, T[] destination, int count) where T : struct
     {
         if (destination.Length < count)
         {
@@ -89,7 +90,7 @@ public static class Extensions
     /// <param name="pointer">The native pointer to the start of the array.</param>
     /// <param name="count">The number of structures to read.</param>
     /// <returns>A new array of structures of type <typeparamref name="T"/> read from the specified pointer.</returns>
-    public static T[] ReadArray<T>(this nint pointer, int count) where T : struct
+    public static T[] ReadArray<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] T>(this nint pointer, int count) where T : struct
     {
         if (count == 0)
             return [];

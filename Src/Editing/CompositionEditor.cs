@@ -35,9 +35,9 @@ public sealed class CompositionEditor : IDisposable
     /// <param name="timelineStartTime">The time on the track's timeline where the segment should start.</param>
     /// <param name="options">Optional configuration for reading metadata.</param>
     /// <returns>The newly created and added <see cref="AudioSegment"/>.</returns>
-    public async Task<AudioSegment> CreateAndAddSegmentFromFileAsync(Track track, string filePath, TimeSpan timelineStartTime, ReadOptions? options = null)
+    public AudioSegment CreateAndAddSegmentFromFile(Track track, string filePath, TimeSpan timelineStartTime, ReadOptions? options = null)
     {
-        var segment = await CreateSegmentFromFileAsync(filePath, timelineStartTime, options);
+        var segment = CreateSegmentFromFile(filePath, timelineStartTime, options);
         track.AddSegment(segment);
         return segment;
     }
@@ -51,9 +51,9 @@ public sealed class CompositionEditor : IDisposable
     /// <param name="timelineStartTime">The time on the timeline where the segment will be placed.</param>
     /// <param name="options">Optional configuration for reading metadata.</param>
     /// <returns>A new, configured <see cref="AudioSegment"/>.</returns>
-    public async Task<AudioSegment> CreateSegmentFromFileAsync(string filePath, TimeSpan timelineStartTime, ReadOptions? options = null)
+    public AudioSegment CreateSegmentFromFile(string filePath, TimeSpan timelineStartTime, ReadOptions? options = null)
     {
-        await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true);
+        var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096);
         var dataProvider = new StreamDataProvider(_engine, stream, options); // The provider will be owned by the segment
 
         var formatInfo = dataProvider.FormatInfo ?? throw new InvalidOperationException("Could not read format info from file.");

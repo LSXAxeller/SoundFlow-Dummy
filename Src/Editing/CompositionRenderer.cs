@@ -1,10 +1,10 @@
 ﻿using System.Buffers;
 using System.ComponentModel;
-using SoundFlow.Abstracts;
 using SoundFlow.Interfaces;
 using SoundFlow.Enums;
 using SoundFlow.Metadata.Models;
 using SoundFlow.Midi.Routing.Nodes;
+using SoundFlow.Synthesis;
 
 namespace SoundFlow.Editing;
 
@@ -18,6 +18,7 @@ public sealed class CompositionRenderer : ISoundDataProvider
     private readonly Composition _composition;
     private int _currentReadPositionSamples;
     private PlaybackState _state = PlaybackState.Stopped;
+    private bool _needsReset = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether the renderer's transport is driven by an external sync source.
@@ -132,10 +133,20 @@ public sealed class CompositionRenderer : ISoundDataProvider
     [EditorBrowsable(EditorBrowsableState.Never)]
     public TempoMarker GetTempoAtCurrentPosition()
     {
-        return _composition.Editor.GetTempoAtTime(PositionAsTimeSpan());
+        return _composition.Editor.GetTempoAtTime(CurrentTime);
     }
 
     #endregion
+    
+    /// <summary>
+    /// Renders the full composition into a new float array.
+    /// </summary>
+    /// <returns>A float array containing the rendered audio samples. An empty array is returned if no samples are rendered.</returns>
+    public float[] Render()
+    {
+        // Render full composition
+        return Render(TimeSpan.Zero, _composition.Editor.CalculateTotalDuration());
+    }
 
     /// <summary>
     /// Renders a specific time portion of the composition into a new float array.
@@ -177,15 +188,6 @@ public sealed class CompositionRenderer : ISoundDataProvider
 
         outputBuffer[..samplesToRender].Clear(); // Initialize with silence
 
-        var endTime = startTime + duration;
-
-        // Render MIDI tracks first to trigger synthesizers
-        var activeMidiTracks = GetActiveMidiTracksForRendering();
-        foreach (var midiTrack in activeMidiTracks)
-        {
-            midiTrack.Render(startTime, endTime);
-        }
-        
         float[]? tempBuffer = null;
         try
         {
@@ -193,9 +195,11 @@ public sealed class CompositionRenderer : ISoundDataProvider
             var tempBufferSpan = tempBuffer.AsSpan(0, samplesToRender);
 
             // Render audio tracks
-            var activeTracks = GetActiveTracksForRendering();
-            foreach (var track in activeTracks)
+            var activeAudioTracks = GetActiveTracksForRendering();
+            foreach (var track in activeAudioTracks)
             {
+                // Clear the temp buffer for each track
+                tempBufferSpan.Clear();
                 track.Render(startTime, duration, tempBufferSpan, _composition.SampleRate, _composition.TargetChannels);
                 for (var i = 0; i < samplesToRender; i++)
                 {
@@ -203,11 +207,13 @@ public sealed class CompositionRenderer : ISoundDataProvider
                 }
             }
             
-            // Render MIDI Target components (Synthesizers, etc.)
-            foreach (var targetNode in _composition.MidiTargets)
+            // Render MIDI tracks
+            var activeMidiTracks = GetActiveMidiTracksForRendering();
+            foreach (var midiTrack in activeMidiTracks)
             {
-                if (targetNode is not MidiTargetNode { Target: SoundComponent soundComponent }) continue;
-                soundComponent.Process(tempBufferSpan, _composition.TargetChannels);
+                // Clear the temp buffer for each track
+                tempBufferSpan.Clear();
+                midiTrack.Render(startTime, duration, tempBufferSpan);
                 for (var i = 0; i < samplesToRender; i++)
                 {
                     outputBuffer[i] += tempBufferSpan[i];
@@ -268,8 +274,11 @@ public sealed class CompositionRenderer : ISoundDataProvider
 
     /// <inheritdoc />
     public int Position => _currentReadPositionSamples;
-
-    private TimeSpan PositionAsTimeSpan() => 
+    
+    /// <summary>
+    /// Gets the current playback time in <see cref="TimeSpan"/>.
+    /// </summary>
+    public TimeSpan CurrentTime => 
         TimeSpan.FromSeconds((double)_currentReadPositionSamples / SampleRate / _composition.TargetChannels);
 
     /// <inheritdoc />
@@ -301,6 +310,19 @@ public sealed class CompositionRenderer : ISoundDataProvider
     {
         if (IsDisposed) return 0;
         
+        // If we are starting playback, reset all synthesizers once.
+        if (_needsReset)
+        {
+            foreach (var midiTargetNode in _composition.MidiTargets)
+            {
+                if (midiTargetNode is MidiTargetNode { Target: Synthesizer synth })
+                {
+                    synth.Reset();
+                }
+            }
+            _needsReset = false;
+        }
+        
         // If not sync-driven, playback is controlled by the consumer calling this method.
         if (!IsSyncDriven)
         {
@@ -313,7 +335,7 @@ public sealed class CompositionRenderer : ISoundDataProvider
             return buffer.Length;
         }
         
-        var currentTime = PositionAsTimeSpan();
+        var currentTime = CurrentTime;
         var durationToRead = TimeSpan.FromSeconds((double)buffer.Length / SampleRate / _composition.TargetChannels);
         var totalDuration = _composition.Editor.CalculateTotalDuration();
 
@@ -356,6 +378,18 @@ public sealed class CompositionRenderer : ISoundDataProvider
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         
         _currentReadPositionSamples = Math.Clamp(sampleOffset, 0, Length);
+        
+        if (_currentReadPositionSamples == 0) _needsReset = true;
+        
+        // Signal to all segments that their internal read state is now invalid because of this time jump.
+        foreach (var track in _composition.Tracks)
+        {
+            foreach (var segment in track.Segments)
+            {
+                segment.InvalidateReadState();
+            }
+        }
+        
         PositionChanged?.Invoke(this, new PositionChangedEventArgs(_currentReadPositionSamples));
     }
 

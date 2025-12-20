@@ -15,7 +15,7 @@ internal static unsafe partial class Native
     public delegate void AudioCallback(nint device, nint output, nint input, uint length);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate Result BufferProcessingCallback(
+    public delegate MiniAudioResult BufferProcessingCallback(
         nint pCodecContext,          // The native decoder/encoder instance pointer (ma_decoder*, ma_encoder*)
         nint pBuffer,                // The buffer pointer (void* pBufferOut or const void* pBufferIn)
         ulong bytesRequested,        // The number of bytes requested (bytesToRead or bytesToWrite)
@@ -23,7 +23,7 @@ internal static unsafe partial class Native
     );
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate Result SeekCallback(nint pDecoder, long byteOffset, SeekPoint origin);
+    public delegate MiniAudioResult SeekCallback(nint pDecoder, long byteOffset, SeekPoint origin);
     
     #endregion
     
@@ -163,13 +163,13 @@ internal static unsafe partial class Native
     #region Encoder
 
     [LibraryImport(LibraryName, EntryPoint = "ma_encoder_init", StringMarshalling = StringMarshalling.Utf8)]
-    public static partial Result EncoderInit(BufferProcessingCallback onRead, SeekCallback onSeekCallback, nint pUserData, nint pConfig, nint pEncoder);
+    public static partial MiniAudioResult EncoderInit(BufferProcessingCallback onRead, SeekCallback onSeekCallback, nint pUserData, nint pConfig, nint pEncoder);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_encoder_uninit")]
     public static partial void EncoderUninit(nint pEncoder);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_encoder_write_pcm_frames")]
-    public static partial Result EncoderWritePcmFrames(nint pEncoder, nint pFramesIn, ulong frameCount,
+    public static partial MiniAudioResult EncoderWritePcmFrames(nint pEncoder, nint pFramesIn, ulong frameCount,
         out ulong pFramesWritten);
 
     #endregion
@@ -177,28 +177,28 @@ internal static unsafe partial class Native
     #region Decoder
 
     [LibraryImport(LibraryName, EntryPoint = "ma_decoder_init")]
-    public static partial Result DecoderInit(BufferProcessingCallback onRead, SeekCallback onSeekCallback, nint pUserData,
+    public static partial MiniAudioResult DecoderInit(BufferProcessingCallback onRead, SeekCallback onSeekCallback, nint pUserData,
         nint pConfig, nint pDecoder);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_decoder_uninit")]
-    public static partial Result DecoderUninit(nint pDecoder);
+    public static partial MiniAudioResult DecoderUninit(nint pDecoder);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_decoder_read_pcm_frames")]
-    public static partial Result DecoderReadPcmFrames(nint decoder, nint framesOut, uint frameCount,
+    public static partial MiniAudioResult DecoderReadPcmFrames(nint decoder, nint framesOut, uint frameCount,
         out ulong framesRead);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_decoder_seek_to_pcm_frame")]
-    public static partial Result DecoderSeekToPcmFrame(nint decoder, ulong frame);
+    public static partial MiniAudioResult DecoderSeekToPcmFrame(nint decoder, ulong frame);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_decoder_get_length_in_pcm_frames")]
-    public static partial Result DecoderGetLengthInPcmFrames(nint decoder, out ulong length);
+    public static partial MiniAudioResult DecoderGetLengthInPcmFrames(nint decoder, out ulong length);
 
     #endregion
 
     #region Context
 
     [LibraryImport(LibraryName, EntryPoint = "ma_context_init")]
-    public static partial Result ContextInit(nint backends, uint backendCount, nint config, nint context);
+    public static partial MiniAudioResult ContextInit(nint backends, uint backendCount, nint config, nint context);
     
     [LibraryImport(LibraryName, EntryPoint = "ma_context_uninit")]
     public static partial void ContextUninit(nint context);
@@ -211,19 +211,19 @@ internal static unsafe partial class Native
     #region Device
 
     [LibraryImport(LibraryName, EntryPoint = "sf_get_devices")]
-    public static partial Result GetDevices(nint context, out nint pPlaybackDevices, out nint pCaptureDevices, out uint playbackDeviceCount, out uint captureDeviceCount);
+    public static partial MiniAudioResult GetDevices(nint context, out nint pPlaybackDevices, out nint pCaptureDevices, out uint playbackDeviceCount, out uint captureDeviceCount);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_device_init")]
-    public static partial Result DeviceInit(nint context, nint config, nint device);
+    public static partial MiniAudioResult DeviceInit(nint context, nint config, nint device);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_device_uninit")]
     public static partial void DeviceUninit(nint device);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_device_start")]
-    public static partial Result DeviceStart(nint device);
+    public static partial MiniAudioResult DeviceStart(nint device);
 
     [LibraryImport(LibraryName, EntryPoint = "ma_device_stop")]
-    public static partial Result DeviceStop(nint device);
+    public static partial MiniAudioResult DeviceStop(nint device);
 
     #endregion
 
