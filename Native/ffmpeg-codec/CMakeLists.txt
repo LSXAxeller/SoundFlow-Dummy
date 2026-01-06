@@ -386,24 +386,26 @@ if(TARGET_OS STREQUAL "win")
 elseif(TARGET_OS STREQUAL "osx")
     if(TARGET_ARCH STREQUAL "x64")
         set(FFMPEG_ARCH "x86_64")
+        set(MACOS_ARCH_CLANG "x86_64")
         set(MACOS_TARGET "x86_64-apple-darwin")
     else()
         set(FFMPEG_ARCH "aarch64")
-        set(MACOS_TARGET "arm64-apple-darwin")
+        set(MACOS_ARCH_CLANG "arm64")
+        set(MACOS_TARGET "aarch64-apple-darwin")
     endif()
 
     # LAME macOS setup
     list(APPEND LAME_COMMON_FLAGS
             --host=${MACOS_TARGET}
-            "CFLAGS=-arch ${FFMPEG_ARCH} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET} -Wno-implicit-function-declaration"
-            "LDFLAGS=-arch ${FFMPEG_ARCH} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+            "CFLAGS=-arch ${MACOS_ARCH_CLANG} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET} -Wno-implicit-function-declaration"
+            "LDFLAGS=-arch ${MACOS_ARCH_CLANG} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
 
     list(APPEND FFMPEG_COMMON_FLAGS
             --target-os=darwin
             --arch=${FFMPEG_ARCH}
             --enable-cross-compile
-            "--extra-cflags=-target ${MACOS_TARGET}"
-            "--extra-ldflags=-target ${MACOS_TARGET}"
+            "--extra-cflags=-target ${MACOS_TARGET} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+            "--extra-ldflags=-target ${MACOS_TARGET} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}"
             --enable-runtime-cpudetect)
 
 elseif(TARGET_OS STREQUAL "linux")
