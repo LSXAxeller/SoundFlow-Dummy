@@ -3,6 +3,12 @@ project(SoundFlowFFmpeg C)
 
 cmake_policy(SET CMP0135 NEW)
 
+# LAME - Set macOS Deployment Target
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13")
+    message(STATUS "CMAKE_OSX_DEPLOYMENT_TARGET not set. Defaulting to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif()
+
 # Helper – normalise CPU names that vary between OSes / toolchains
 function(normalise_arch IN OUT)
     string(TOLOWER "${IN}" _arch)
@@ -389,7 +395,7 @@ elseif(TARGET_OS STREQUAL "osx")
     # LAME macOS setup
     list(APPEND LAME_COMMON_FLAGS
             --host=${MACOS_TARGET}
-            "CFLAGS=-arch ${FFMPEG_ARCH} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+            "CFLAGS=-arch ${FFMPEG_ARCH} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET} -Wno-implicit-function-declaration"
             "LDFLAGS=-arch ${FFMPEG_ARCH} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
 
     list(APPEND FFMPEG_COMMON_FLAGS
@@ -505,12 +511,11 @@ endif()
 # External build of FFmpeg
 find_program(BASH_EXECUTABLE bash REQUIRED)
 
-# Always explicitly find 'make'. CMAKE_MAKE_PROGRAM might be Ninja or NMake,
-# but configure scripts specifically need GNU Make.
-find_program(MAKE_EXECUTABLE NAMES make gmake HINTS "C:/msys64/usr/bin" "/usr/bin")
+find_program(MAKE_EXECUTABLE NAMES gmake make HINTS "C:/msys64/usr/bin" "/usr/bin")
 if(NOT MAKE_EXECUTABLE)
-    message(FATAL_ERROR "Could not find 'make'. It is required to build FFmpeg/LAME via autotools.")
+    message(FATAL_ERROR "Could not find 'make' or 'gmake'. It is required to build FFmpeg/LAME via autotools.")
 endif()
+message(STATUS "Using Make program: ${MAKE_EXECUTABLE}")
 
 include(ExternalProject)
 
