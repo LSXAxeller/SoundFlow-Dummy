@@ -1,9 +1,10 @@
 ﻿<div align="center">
-    <img src="https://raw.githubusercontent.com/LSXPrime/SoundFlow/refs/heads/master/logo.png" alt="Project Logo" width="256" height="256">
+
+![SoundFlow Logo](https://raw.githubusercontent.com/LSXAxeller/SoundFlow-Dummy/refs/heads/master/logo.png)
 
 # SoundFlow
 
-**A Powerful and Extensible .NET Audio Engine for Enterprise Applications**
+**The Complete .NET Audio Framework: From High-Fidelity Synthesis to Secure Distribution**
 
 [![Build Status](https://github.com/LSXPrime/SoundFlow/actions/workflows/release.yml/badge.svg)](https://github.com/LSXPrime/SoundFlow/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![NuGet](https://img.shields.io/nuget/v/SoundFlow.svg)](https://www.nuget.org/packages/SoundFlow) [![.NET](https://img.shields.io/badge/.NET-8.0-blue.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 
@@ -52,7 +53,12 @@ SoundFlow is a robust and versatile .NET audio engine designed for seamless cros
     *   **Compositions & Tracks:** Organize projects into multi-track compositions supporting both Audio and MIDI tracks.
     *   **Hybrid Timeline:** Mix audio clips and MIDI segments on the same timeline.
     *   **Sequencing:** Sample-accurate MIDI sequencing with quantization, swing, and tempo map support.
-    *   **Project Persistence:** Save/Load full projects including audio assets, MIDI sequences, tempo maps, and routing configurations.
+    *   **Project Persistence:** Save/Load full projects including audio assets, MIDI sequences, tempo maps, and routing configurations, with optional digital signing for integrity.
+*   **Comprehensive Security Suite:**
+    *   **Audio Encryption:** High-performance, seekable stream encryption using AES-256-CTR, packaged in a secure container format.
+    *   **Digital Signatures:** Ensure file integrity and authenticity for projects and audio containers using ECDSA digital signatures.
+    *   **Audio Watermarking:** Embed robust, inaudible ownership data (DSSS) or fragile integrity verification markers (LSB) directly into audio signals.
+    *   **Acoustic Fingerprinting:** Identify audio content by generating and matching robust acoustic fingerprints against a database.
 
 ## Getting Started
 
@@ -74,7 +80,7 @@ SoundFlow's architecture supports adding specialized audio processing capabiliti
 
 This package integrates the massive **FFmpeg** library into SoundFlow. While the core engine handles common formats, this extension unlocks decoding and encoding for virtually any audio format in existence.
 
-*   **Decoders/Encoders:** Adds support for MP3, AAC, OGG Vorbis, Opus, ALAC, AC3, PCM variations, and many more.
+*   **Decoders/Encoders:** Adds support for MP3 (encoder by LAME), AAC, OGG Vorbis, Opus, ALAC, AC3, PCM variations, and many more.
 *   **Container Support:** Handles complex containers like M4A, MKA, and others.
 *   **Automatic Registration:** simply registering the factory enables the engine to auto-detect and play these formats transparently.
 
@@ -114,6 +120,7 @@ The **[Documentation](https://lsxprime.github.io/soundflow-docs/)** provides a w
 *   **Analysis:** Getting RMS level, analyzing frequency spectrum.
 *   **Visualization:** Creating level meters, waveform displays, and spectrum analyzers.
 *   **Composition:** Managing audio projects, including creating, editing, and saving multi-track compositions.
+*   **Security:** Encrypting audio, signing files, and embedding robust ownership watermarks.
 
 **(Note:** You can also find extensive example code in the `Samples` folder of the repository.)
 
@@ -129,6 +136,7 @@ We sincerely appreciate the foundational work provided by the following projects
 
 *   **[miniaudio](https://github.com/mackron/miniaudio)** - Provides a lightweight and efficient audio I/O backend.
 *   **[FFmpeg](https://ffmpeg.org/)** - The leading multimedia framework, powering our codec extension.
+*   **[LAME Project](https://lame.sourceforge.io/)** - For the high-quality MP3 encoder used in the FFMpeg extension.
 *   **[PortMidi](https://github.com/PortMidi/portmidi)** - Enables cross-platform MIDI I/O.
 *   **[WebRTC Audio Processing Module (APM)](https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing)** - Offers advanced audio processing (AEC, AGC, Noise Suppression).
 
@@ -168,17 +176,18 @@ If you use SoundFlow in your research or project, you can cite it using the foll
 
 ### APA
 ```
-Abdallah, A. (2025). SoundFlow: A high-performance, modular audio engine for .NET (Version 1.3.1) [Computer software]. https://github.com/LSXPrime/SoundFlow
+Abdallah, A. (2026). SoundFlow: A high-performance, secure audio and MIDI engine for .NET (Version 1.4.0) [Computer software]. https://github.com/LSXPrime/SoundFlow
 ```
 
 ### BibTeX
 ```
-@software{abdallah_soundflow_2025,
-author = {Abdallah, Ahmed},
-title = {{SoundFlow: A high-performance, modular audio engine for .NET}},
-url = {https://github.com/LSXPrime/SoundFlow},
-version = {1.3.1},
-year = {2025}
+@software{abdallah_soundflow_2026,
+  author = {Abdallah, Ahmed},
+  title = {{SoundFlow: A high-performance, secure audio and MIDI engine for .NET}},
+  url = {https://github.com/LSXPrime/SoundFlow},
+  version = {1.4.0},
+  year = {2026},
+  note = {Cross-platform audio processing, synthesis, and content protection framework}
 }
 ```
 
