@@ -368,6 +368,24 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
           cmake --build . --parallel --verbose
+
+      - name: Patch Info.plist for App Store Validation
+        run: |
+          PLIST="build/runtimes/ios-arm64/native/soundflow-ffmpeg.framework/Info.plist"
+          if [ -f "$PLIST" ]; then
+            echo "Patching $PLIST to meet altool/App Store requirements..."
+            # Replace empty strings with valid version numbers and names
+            plutil -replace CFBundleShortVersionString "1.4.0" "$PLIST"
+            plutil -replace CFBundleVersion "1" "$PLIST"
+            plutil -replace MinimumOSVersion "12.0" "$PLIST"
+            plutil -replace CFBundleName "SoundFlow FFmpeg" "$PLIST"
+          
+            echo "Patched Info.plist contents:"
+            cat "$PLIST"
+          else
+            echo "Warning: Info.plist not found at expected path: $PLIST"
+          fi
+
       - name: Analyze Dependencies
         run: |
           ARTIFACT_DIR="build/runtimes/ios-arm64/native"
