@@ -375,10 +375,10 @@ jobs:
           if [ -f "$PLIST" ]; then
             echo "Patching $PLIST to meet altool/App Store requirements..."
             # Replace empty strings with valid version numbers and names
-            plutil -replace CFBundleShortVersionString "1.4.0" "$PLIST"
-            plutil -replace CFBundleVersion "1" "$PLIST"
-            plutil -replace MinimumOSVersion "12.0" "$PLIST"
-            plutil -replace CFBundleName "SoundFlow FFmpeg" "$PLIST"
+            plutil -replace CFBundleShortVersionString -type string "1.4.0" "$PLIST"
+            plutil -replace CFBundleVersion -type string "1" "$PLIST"
+            plutil -replace MinimumOSVersion -type string "12.0" "$PLIST"
+            plutil -replace CFBundleName -type string "SoundFlow FFmpeg" "$PLIST"
           
             echo "Patched Info.plist contents:"
             cat "$PLIST"
