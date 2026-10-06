@@ -1,6 +1,7 @@
 using SoundFlow.Abstracts;
 using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Components;
+using SoundFlow.Enums;
 using SoundFlow.Interfaces;
 using SoundFlow.Modifiers;
 using SoundFlow.Providers;
@@ -134,7 +135,7 @@ internal static class ComponentTests
             { Frequency = 440f, Amplitude = 0.5f, Type = Oscillator.WaveformType.Square };
         var filter = new Filter(Format)
         {
-            Type = Filter.FilterType.LowPass,
+            Type = FilterType.LowPass,
             CutoffFrequency = 1000f,
             Resonance = 0.8f
         };

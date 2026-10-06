@@ -46,7 +46,7 @@ public abstract class AudioAnalyzer : IMidiMappable
     /// <summary>
     /// Processes the audio data and sends it to the visualizer.
     /// </summary>
-    public void Process(Span<float> buffer, int channels)
+    public void Process(ReadOnlySpan<float> buffer, int channels)
     {
         if (!Enabled) return;
         
@@ -62,5 +62,5 @@ public abstract class AudioAnalyzer : IMidiMappable
     /// </summary>
     /// <param name="buffer">The audio buffer.</param>
     /// <param name="channels">The number of channels in the buffer.</param>
-    protected abstract void Analyze(Span<float> buffer, int channels);
+    protected abstract void Analyze(ReadOnlySpan<float> buffer, int channels);
 }

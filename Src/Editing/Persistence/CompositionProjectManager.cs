@@ -12,6 +12,8 @@ using SoundFlow.Midi.Abstracts;
 using SoundFlow.Midi.Interfaces;
 using SoundFlow.Midi.Routing.Nodes;
 using SoundFlow.Providers;
+using SoundFlow.Security;
+using SoundFlow.Security.Configuration;
 using SoundFlow.Structs;
 using SoundFlow.Utils;
 
@@ -24,7 +26,7 @@ public static class CompositionProjectManager
 {
     // The native file version this version of the library is designed to write and read.
     // Used for compatibility checks during loading.
-    private const string DefaultProjectFileVersion = "1.3.1";
+    private const string DefaultProjectFileVersion = "1.4.0";
 
     #region Saving
 
@@ -193,10 +195,54 @@ public static class CompositionProjectManager
             projectData.MidiTracks.Add(projectMidiTrack);
         }
 
-        var json = JsonSerializer.Serialize(projectData, jsonOptions);
+        var typeInfo = (JsonTypeInfo<ProjectData>)jsonOptions.GetTypeInfo(typeof(ProjectData));
+        var json = JsonSerializer.Serialize(projectData, typeInfo);
         await File.WriteAllTextAsync(projectFilePath, json);
 
+        // Signing Integration
+        if (options.SigningConfiguration != null)
+        {
+            var sigResult = await FileAuthenticator.SignFileAsync(projectFilePath, options.SigningConfiguration);
+            if (sigResult.IsSuccess)
+            {
+                var sigPath = projectFilePath + ".sig";
+                await File.WriteAllTextAsync(sigPath, sigResult.Value);
+            }
+            else
+            {
+                Log.Warning($"Failed to sign project file: {sigResult.Error?.Message}");
+            }
+        }
+
         composition.ClearDirtyFlag();
+    }
+
+    /// <summary>
+    /// Verifies the integrity and authenticity of a project file using a detached digital signature.
+    /// This method checks if the project file has been modified since it was signed.
+    /// </summary>
+    /// <param name="projectFilePath">The path to the project file (.sfproj).</param>
+    /// <param name="signatureFilePath">The path to the signature file (.sig). If null, defaults to projectFilePath + ".sig".</param>
+    /// <param name="config">The signature configuration containing the Public Key.</param>
+    /// <returns>A result containing true if the project is valid and authentic; otherwise, false or an error.</returns>
+    public static async Task<Result<bool>> VerifyProjectAsync(string projectFilePath, string? signatureFilePath, SignatureConfiguration config)
+    {
+        if (!File.Exists(projectFilePath))
+            return new NotFoundError("File", $"Project file not found: {projectFilePath}");
+
+        var sigPath = signatureFilePath ?? projectFilePath + ".sig";
+        if (!File.Exists(sigPath))
+            return new NotFoundError("File", $"Signature file not found: {sigPath}");
+
+        try
+        {
+            var signature = await File.ReadAllTextAsync(sigPath);
+            return await FileAuthenticator.VerifyFileAsync(projectFilePath, signature, config);
+        }
+        catch (Exception ex)
+        {
+            return new Error("An error occurred while verifying the project file.", ex);
+        }
     }
 
     private static async Task<ProjectSourceReference> CreateSourceReferenceAsync(
@@ -407,7 +453,8 @@ public static class CompositionProjectManager
         };
 
         var json = await File.ReadAllTextAsync(projectFilePath);
-        var projectData = JsonSerializer.Deserialize(json, (JsonTypeInfo<ProjectData>)jsonOptions.GetTypeInfo(typeof(ProjectData)))
+        var typeInfo = (JsonTypeInfo<ProjectData>)jsonOptions.GetTypeInfo(typeof(ProjectData));
+        var projectData = JsonSerializer.Deserialize(json, typeInfo)
                           ?? throw new JsonException("Failed to deserialize project data.");
 
         if (Version.TryParse(projectData.ProjectFileVersion, out var fileVersion) &&
@@ -648,7 +695,7 @@ public static class CompositionProjectManager
             }
             catch (Exception ex)
             {
-                Log.Error($"[CompositionProjectManager] Error decoding embedded data for source ID {sourceRef.Id}: {ex.Message}");
+                Log.Error($"Error decoding embedded data for source ID {sourceRef.Id}: {ex.Message}");
                 return null;
             }
         }
@@ -717,7 +764,7 @@ public static class CompositionProjectManager
         }
         catch (Exception ex)
         {
-            Log.Error($"[CompositionProjectManager] Error loading MIDI data for source ID {sourceRef.Id}: {ex.Message}");
+            Log.Error($"Error loading MIDI data for source ID {sourceRef.Id}: {ex.Message}");
             return null;
         }
     }
@@ -804,13 +851,15 @@ public static class CompositionProjectManager
                 {
                     var value = prop.GetValue(effect);
                     if (value != null)
-                        parameters[prop.Name] =
-                            JsonValue.Create(JsonSerializer.SerializeToElement(value, prop.PropertyType, jsonOptions));
+                    {
+                        var propTypeInfo = jsonOptions.GetTypeInfo(prop.PropertyType);
+                        parameters[prop.Name] = JsonValue.Create(JsonSerializer.SerializeToElement(value, propTypeInfo));
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log.Warning(
-                        $"[CompositionProjectManager] Could not serialize property '{prop.Name}' for effect type '{effectType.Name}': {ex.Message}");
+                        $"Could not serialize property '{prop.Name}' for effect type '{effectType.Name}': {ex.Message}");
                 }
             }
 
@@ -903,13 +952,14 @@ public static class CompositionProjectManager
                         {
                             try
                             {
-                                var value = jsonProp.Deserialize(propInfo.PropertyType, jsonOptions);
+                                var propTypeInfo = jsonOptions.GetTypeInfo(propInfo.PropertyType);
+                                var value = jsonProp.Deserialize(propTypeInfo);
                                 propInfo.SetValue(typedInstance, value);
                             }
                             catch (Exception ex)
                             {
                                 Log.Warning(
-                                    $"[CompositionProjectManager] Could not deserialize or set property '{propInfo.Name}' for effect '{effectType.Name}': {ex.Message}. Using default.");
+                                    $"Could not deserialize or set property '{propInfo.Name}' for effect '{effectType.Name}': {ex.Message}. Using default.");
                             }
                         }
                     }
@@ -920,7 +970,7 @@ public static class CompositionProjectManager
             catch (Exception ex)
             {
                 Log.Error(
-                    $"[CompositionProjectManager] Error instantiating or setting parameters for effect '{effectData.TypeName}': {ex.Message}. Effect skipped.");
+                    $"Error instantiating or setting parameters for effect '{effectData.TypeName}': {ex.Message}. Effect skipped.");
             }
         }
 

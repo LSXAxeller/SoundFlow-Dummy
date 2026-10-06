@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using SoundFlow.Interfaces;
 using SoundFlow.Midi.Interfaces;
 using SoundFlow.Midi.Structs;
-using SoundFlow.Structs;
 
 namespace SoundFlow.Abstracts;
 
