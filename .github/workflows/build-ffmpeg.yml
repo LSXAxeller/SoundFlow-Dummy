@@ -16,11 +16,11 @@ jobs:
       matrix:
         include:
           - arch: x64
-            os: windows-latest
+            os: windows-2025
             msystem: MINGW64
             mingw-package-prefix: mingw-w64-x86_64
           - arch: x86
-            os: windows-latest
+            os: windows-2025
             msystem: MINGW32
             mingw-package-prefix: mingw-w64-i686
           - arch: arm64

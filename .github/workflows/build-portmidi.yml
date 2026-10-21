@@ -12,17 +12,17 @@ jobs:
       matrix:
         include:
           # Windows (MSVC)
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x64
             platform: Windows
             arch: x64
             cmake_generator_arch: x64
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x86
             platform: Windows
             arch: x86
             cmake_generator_arch: Win32
-          - os: windows-latest
+          - os: windows-2025
             rid: win-arm64
             platform: Windows
             arch: ARM64

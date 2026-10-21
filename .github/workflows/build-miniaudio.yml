@@ -144,7 +144,7 @@ jobs:
       matrix:
         include:
           # Windows builds
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x64
             platform: Windows
             arch: x64
@@ -152,7 +152,7 @@ jobs:
             lib_extension: ".dll"
             toolchain: "Visual Studio 18 2026"
 
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x86
             platform: Windows
             arch: x86
@@ -160,7 +160,7 @@ jobs:
             lib_extension: ".dll"
             toolchain: "Visual Studio 18 2026"
 
-          - os: windows-latest
+          - os: windows-2025
             rid: win-arm64
             platform: Windows
             arch: ARM64
@@ -287,7 +287,7 @@ jobs:
 
       - name: Install Dependencies (Android)
         if: matrix.platform == 'Android'
-        uses: android-actions/setup-android@v2
+        uses: android-actions/setup-android@v4
 
       - name: Install Cross-Compilation tools (Linux)
         if: matrix.platform == 'Linux' && (matrix.arch == 'armv7l' || matrix.arch == 'aarch64')
