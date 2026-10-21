@@ -198,7 +198,7 @@ public sealed class MidiMappingManager : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error($"[MIDI Mapping] Error applying mapping for '{mapping.Target.TargetMemberName}': {ex.Message}");
+            Log.Error($"Error applying mapping for '{mapping.Target.TargetMemberName}': {ex.Message}");
             _memberCache.Remove(mapping.Id);
         }
     }
@@ -236,7 +236,7 @@ public sealed class MidiMappingManager : IDisposable
 
         if (methodParams.Length != mappingArgs.Count)
         {
-            Log.Warning($"[MIDI Mapping] Method '{methodInfo.Name}' signature does not match mapping argument count.");
+            Log.Warning($"Method '{methodInfo.Name}' signature does not match mapping argument count.");
             return;
         }
 
@@ -250,7 +250,7 @@ public sealed class MidiMappingManager : IDisposable
             if (attribute == null)
             {
                 Log.Warning(
-                    $"[MIDI Mapping] Method parameter '{paramInfo.Name}' is missing [ControllableParameter] attribute.");
+                    $"Method parameter '{paramInfo.Name}' is missing [ControllableParameter] attribute.");
                 return;
             }
 

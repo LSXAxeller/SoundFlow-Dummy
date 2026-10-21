@@ -1,8 +1,14 @@
 ﻿using System.Text.Json.Serialization;
 using SoundFlow.Components;
 using SoundFlow.Editing.Mapping;
+using SoundFlow.Enums;
 using SoundFlow.Midi.Modifier;
 using SoundFlow.Modifiers;
+using SoundFlow.Security.Analyzers;
+using SoundFlow.Security.Configuration;
+using SoundFlow.Security.Models;
+using SoundFlow.Security.Modifiers;
+using SoundFlow.Security.Payloads;
 using SoundFlow.Visualization;
 
 namespace SoundFlow.Editing.Persistence;
@@ -83,8 +89,12 @@ namespace SoundFlow.Editing.Persistence;
 [JsonSerializable(typeof(TrebleBoosterModifier))]
 [JsonSerializable(typeof(VocalExtractorModifier))]
 
+// Security Modifiers
+[JsonSerializable(typeof(OwnershipWatermarkEmbedModifier))]
+[JsonSerializable(typeof(IntegrityWatermarkEmbedModifier))]
+[JsonSerializable(typeof(StreamEncryptionModifier))]
+
 // Modifier Specific Sub-Types
-[JsonSerializable(typeof(Filter.FilterType))] 
 [JsonSerializable(typeof(EqualizerBand))]
 [JsonSerializable(typeof(List<EqualizerBand>))]
 [JsonSerializable(typeof(FilterType))]
@@ -93,6 +103,21 @@ namespace SoundFlow.Editing.Persistence;
 [JsonSerializable(typeof(LevelMeterAnalyzer))]
 [JsonSerializable(typeof(SpectrumAnalyzer))]
 [JsonSerializable(typeof(VoiceActivityDetector))]
+[JsonSerializable(typeof(ContentFingerprintAnalyzer))]
+
+// Security Analyzers
+[JsonSerializable(typeof(OwnershipWatermarkExtractAnalyzer))]
+[JsonSerializable(typeof(IntegrityWatermarkVerifyAnalyzer))]
+
+// Security Types
+[JsonSerializable(typeof(FingerprintConfiguration))]
+[JsonSerializable(typeof(AudioFingerprint))]
+[JsonSerializable(typeof(FingerprintHash))]
+[JsonSerializable(typeof(List<FingerprintHash>))]
+[JsonSerializable(typeof(WatermarkConfiguration))]
+[JsonSerializable(typeof(TextPayload))]
+[JsonSerializable(typeof(EncryptionConfiguration))]
+[JsonSerializable(typeof(SignatureConfiguration))]
 
 // MIDI Modifiers
 [JsonSerializable(typeof(ArpeggiatorModifier))]
