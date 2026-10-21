@@ -150,7 +150,7 @@ jobs:
             arch: x64
             cmake_target_arch: x64
             lib_extension: ".dll"
-            toolchain: "Visual Studio 17 2022"
+            toolchain: "Visual Studio 18 2026"
 
           - os: windows-latest
             rid: win-x86
@@ -158,7 +158,7 @@ jobs:
             arch: x86
             cmake_target_arch: Win32
             lib_extension: ".dll"
-            toolchain: "Visual Studio 17 2022"
+            toolchain: "Visual Studio 18 2026"
 
           - os: windows-latest
             rid: win-arm64
@@ -166,7 +166,7 @@ jobs:
             arch: ARM64
             cmake_target_arch: ARM64
             lib_extension: ".dll"
-            toolchain: "Visual Studio 17 2022"
+            toolchain: "Visual Studio 18 2026"
 
           # Linux builds
           - os: ubuntu-22.04
